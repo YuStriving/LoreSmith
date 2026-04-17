@@ -1,0 +1,1 @@
+角色档案建议字段：name/aliases/role/description/arc/traits。核心角色应承担清晰功能。

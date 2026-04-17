@@ -1,0 +1,63 @@
+{
+  "chapter": 3,
+  "scope": "chapter",
+  "issues": [
+    {
+      "type": "pacing",
+      "severity": "warning",
+      "description": "中段说明略长",
+      "evidence": "第二段连续解释较多",
+      "suggestion": "压缩背景说明"
+    }
+  ],
+  "verdict": "accept",
+  "summary": "整体通过，可继续下一章",
+  "dimensions": [
+    {
+      "dimension": "consistency",
+      "score": 85,
+      "verdict": "pass",
+      "comment": "设定一致"
+    },
+    {
+      "dimension": "character",
+      "score": 82,
+      "verdict": "pass",
+      "comment": "角色动机成立"
+    },
+    {
+      "dimension": "pacing",
+      "score": 78,
+      "verdict": "warning",
+      "comment": "中段可压缩"
+    },
+    {
+      "dimension": "continuity",
+      "score": 86,
+      "verdict": "pass",
+      "comment": "连续性良好"
+    },
+    {
+      "dimension": "foreshadow",
+      "score": 80,
+      "verdict": "pass",
+      "comment": "伏笔明确"
+    },
+    {
+      "dimension": "hook",
+      "score": 83,
+      "verdict": "pass",
+      "comment": "钩子有效"
+    },
+    {
+      "dimension": "aesthetic",
+      "score": 81,
+      "verdict": "pass",
+      "comment": "语言风格稳定"
+    }
+  ],
+  "contract_status": "met",
+  "contract_misses": [],
+  "contract_notes": "核心契约已满足",
+  "affected_chapters": []
+}

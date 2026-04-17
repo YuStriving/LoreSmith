@@ -1,0 +1,9 @@
+{
+  "started_at": "2026-04-16T09:00:38.165204+00:00",
+  "provider": "openrouter",
+  "style": "default",
+  "model": "qwen3.5-flash",
+  "planning_tier": "",
+  "steer_history": [],
+  "pending_steer": ""
+}

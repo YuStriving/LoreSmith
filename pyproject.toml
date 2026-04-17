@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ainovel-py"
+version = "0.1.0"
+description = "Python port of ainovel-cli (headless-first)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "textual>=0.70.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ainovel_py*"]

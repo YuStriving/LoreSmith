@@ -1,0 +1,13 @@
+{
+  "chapter": 6,
+  "committed": true,
+  "word_count": 2711,
+  "next_chapter": 7,
+  "review_required": true,
+  "review_reason": "每完成 3 章触发一次审阅（当前已完成 6 章）",
+  "hook_type": "悬念/反转",
+  "dominant_strand": "生存博弈与世界观揭秘",
+  "system_hints": [
+    "[系统] review_required: 每完成 3 章触发一次审阅（当前已完成 6 章）。请调用 editor 进行全局审阅。"
+  ]
+}

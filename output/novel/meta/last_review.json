@@ -1,0 +1,91 @@
+{
+  "chapter": 6,
+  "scope": "1-6",
+  "issues": [
+    {
+      "type": "continuity_error",
+      "severity": "high",
+      "description": "场景转移缺失，导致时空逻辑断裂。",
+      "evidence": "第 5 章结尾位于地下车库/郊区公路，第 6 章开头直接出现在废弃诊所，无过渡说明。",
+      "suggestion": "在第 6 章开头增加简短过渡，说明两人如何逃脱包围并抵达诊所，或明确诊所位置就在附近。"
+    },
+    {
+      "type": "logic_contradiction",
+      "severity": "high",
+      "description": "身体状态前后矛盾。",
+      "evidence": "文中提到‘双手无法动弹’，随后又写‘反手握住了林老爷子伸过来的手’，动作无法执行。",
+      "suggestion": "修改为‘尽管身体无法动弹，仍用尽意志力将意识凝聚于指尖’或删去无法动弹的描述，改为虚弱但能动。"
+    },
+    {
+      "type": "system_mechanic",
+      "severity": "medium",
+      "description": "系统功能切换过于随意。",
+      "evidence": "系统先警告篡改逻辑，后触发隐藏机制，最后又报错修复失败，规则变动缺乏铺垫。",
+      "suggestion": "提前暗示系统的不稳定性，或在林默做出选择时给予更明确的代价提示，使机制变化更有因果。"
+    },
+    {
+      "type": "pacing_rush",
+      "severity": "medium",
+      "description": "反派登场与决战压缩过紧。",
+      "evidence": "雇佣兵刚被击退，林老爷子立刻入场并瞬间压制全场，缺乏力量对比的铺垫。",
+      "suggestion": "增加雇佣兵对林老爷子反应的恐惧描写，或让林老爷子展示部分实力后再完全压制，体现层级差距。"
+    }
+  ],
+  "verdict": "polish",
+  "summary": "本章成功推进了主线冲突，揭示了江城作为培养皿的核心设定，章末钩子强烈。主要问题在于场景转换的逻辑断层和人物肢体动作的自相矛盾。建议通过微调过渡段落和修正动作描写来修复硬伤，无需重写整体结构。",
+  "dimensions": [
+    {
+      "dimension": "consistency",
+      "score": 75,
+      "verdict": "warning",
+      "comment": "系统机制与物理状态存在矛盾。林默手部无法动弹却又能紧握对方，系统规则在章节内多次突变（警告->隐藏机制->错误代码），缺乏统一底层逻辑支撑。"
+    },
+    {
+      "dimension": "character",
+      "score": 85,
+      "verdict": "pass",
+      "comment": "主角决绝、反派阴冷的基调保持良好。苏青从傀儡到求救的意识回归符合情感弧光，但部分台词略显生硬。"
+    },
+    {
+      "dimension": "pacing",
+      "score": 80,
+      "verdict": "pass",
+      "comment": "节奏紧凑，战斗、救援、对峙、反转密集。但在高潮处转折过快，导致情绪沉淀不足，读者可能来不及消化“容器”真相。"
+    },
+    {
+      "dimension": "continuity",
+      "score": 65,
+      "verdict": "warning",
+      "comment": "严重断档。第 5 章结尾在车库/公路被包围，第 6 章开头突然在废弃诊所，中间转移过程缺失。且第 5 章苏青已被系统接管，第 6 章开头林默如何找到并建立输血连接未交代。"
+    },
+    {
+      "dimension": "foreshadow",
+      "score": 90,
+      "verdict": "pass",
+      "comment": "神秘短信发件人与第 1 章呼应，江城是培养皿的设定为后续世界观展开埋下大伏笔，信息量充足。"
+    },
+    {
+      "dimension": "hook",
+      "score": 95,
+      "verdict": "pass",
+      "comment": "章末“折叠空间”、“新搭档消息”悬念极强，有效激发追读欲望，符合商业网文标准。"
+    },
+    {
+      "dimension": "aesthetic",
+      "score": 80,
+      "verdict": "pass",
+      "comment": "画面感强（福尔马林味、数据流、激光切割），但部分描写略显套路化（如“嘴角勾起笑意”），可进一步打磨独特性。"
+    }
+  ],
+  "contract_status": "partial_pass",
+  "contract_misses": [
+    "延续前文章节因果（地点转移缺失）",
+    "角色称谓与状态一致（手部动作矛盾）"
+  ],
+  "contract_notes": "核心剧情目标（推进冲突、制造悬念）已达成，但基础逻辑链条存在断裂风险。需重点修复第 5 章至第 6 章的场景衔接及人物物理状态的一致性。",
+  "affected_chapters": [
+    5,
+    6,
+    7
+  ]
+}

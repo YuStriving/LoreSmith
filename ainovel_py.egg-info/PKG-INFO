@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: ainovel-py
+Version: 0.1.0
+Summary: Python port of ainovel-cli (headless-first)
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: textual>=0.70.0
+
+# ainovel_py
+
+基于当前 Go 项目进行的 Python 复刻版本（Headless 优先）。
+
+当前实现范围：
+- CLI 参数对齐：`--config` `--headless` `--prompt` `--prompt-file`
+- 配置加载与合并（全局 / 项目 / flag）
+- Domain/Store 基础持久化（JSON/JSONL/Markdown，原子写）
+- Host 生命周期骨架（start/resume/continue/steer/abort）
+- Headless 事件/流输出闭环
+
+## 快速运行
+
+```bash
+cd ainovel_py
+python -m ainovel_py.cli.main --headless --prompt "写一个赛博修仙故事开篇"
+```

@@ -1,0 +1,1 @@
+章节大纲建议字段：chapter/title/core_event/hook/scenes。每章必须服务主冲突推进。
