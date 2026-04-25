@@ -6,8 +6,6 @@
 - **java-platform**：平台层 API，当前主要承接 story 元数据与基础平台接口
 - **ainovel_py**：Python Agent Runtime，负责写作运行时、workspace、上下文组装、评审与流式事件输出
 
-当前项目已经不是“单后端应用”，而是**前端同时连接 Java 平台层与 Python Agent Runtime** 的结构。
-
 ![img](img/1.jpg)
 
 ## 当前架构
