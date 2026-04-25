@@ -15,6 +15,7 @@ from ainovel_py.agents.runner import (
 
 from ..actions import plan_actions
 from ainovel_py.domain.runtime import FlowState
+from ainovel_py.domain.writing import PendingRunCheckpoint
 from ainovel_py.host.events import Event
 
 from ..state import GraphState
@@ -57,14 +58,25 @@ def load_runtime_context(runtime: "LangGraphRuntime") -> Callable[[GraphState], 
     def _node(state: GraphState) -> GraphState:
         progress = runtime.store.progress.load()
         pending = runtime.store.signals.load_pending_commit()
+        pending_checkpoint = runtime.store.signals.load_pending_checkpoint()
         latest = runtime.store.checkpoints.latest_global()
         current_chapter = progress.next_chapter() if progress else 1
         next_action = "novel_context"
         rewrite_mode = ""
+        seed_text = str(state.get("seed_text") or "").strip()
         if progress and progress.flow in {FlowState.REWRITING, FlowState.POLISHING} and progress.pending_rewrites:
             current_chapter = progress.pending_rewrites[0]
             rewrite_mode = "polish" if progress.flow == FlowState.POLISHING else "rewrite"
-        if state.get("resume_mode"):
+        if pending_checkpoint is not None:
+            current_chapter = pending_checkpoint.next_chapter
+            if seed_text == "__RUN_CONTINUE__":
+                runtime.store.signals.clear_pending_checkpoint()
+                next_action = "novel_context"
+                _append_line(state, f"[run] confirmation accepted -> next_chapter={pending_checkpoint.next_chapter}")
+            else:
+                next_action = "finish"
+                _append_line(state, f"[resume] awaiting_confirmation -> pause_after={pending_checkpoint.pause_after_chapter}")
+        elif state.get("resume_mode"):
             if pending is not None:
                 current_chapter = pending.chapter
                 next_action = "commit_chapter"
@@ -130,7 +142,9 @@ def plan_chapter_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], Gra
         runtime.emit_event(Event(time=datetime.now(), category="TOOL", summary=summary, level="info"))
         plan_payload = runtime._build_dynamic_plan(seed_text, chapter, context)
         plan_res = runtime.runner.call_tool("plan_chapter", plan_payload)
-        state["latest_plan"] = plan_res.get("plan") or plan_payload
+        latest_plan = plan_res.get("plan") or plan_payload
+        state["latest_plan"] = latest_plan
+        state["pending_action"] = "generate_draft"
         return state
 
     return _node
@@ -138,8 +152,8 @@ def plan_chapter_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], Gra
 
 def generate_draft_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], GraphState]:
     def _node(state: GraphState) -> GraphState:
-        client = runtime.build_client()
         chapter = int(state.get("current_chapter") or 1)
+        client = runtime.build_client()
         context = state.get("context") or {}
         plan = state.get("latest_plan") or {}
         contract = (plan.get("contract") or {}) if isinstance(plan, dict) else {}
@@ -306,6 +320,17 @@ def checkpoint_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], Graph
             state["pending_action"] = "finish"
             return state
         next_chapter = progress.next_chapter() if progress else chapter + 1
+        if steps > 0 and steps % 5 == 0:
+            pending = PendingRunCheckpoint(
+                pause_after_chapter=max(completed) if completed else chapter,
+                next_chapter=next_chapter,
+                completed_count=steps,
+            )
+            runtime.store.signals.save_pending_checkpoint(pending)
+            runtime.emit_checkpoint_pending(pending)
+            state["current_chapter"] = next_chapter
+            state["pending_action"] = "finish"
+            return state
         state["current_chapter"] = next_chapter
         state["pending_action"] = "continue"
         return state
@@ -332,6 +357,13 @@ def route_after_load(state: GraphState) -> str:
     if action == "finish":
         return "finish"
     return "novel_context"
+
+
+def route_after_plan(state: GraphState) -> str:
+    action = str(state.get("pending_action") or "generate_draft")
+    if action == "finish":
+        return "finish"
+    return "generate_draft"
 
 
 def route_after_commit(state: GraphState) -> str:

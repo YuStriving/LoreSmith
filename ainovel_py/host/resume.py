@@ -28,9 +28,14 @@ def build_resume_prompt(store: Store) -> tuple[str, str]:
         label = f"恢复：规划阶段（{progress.phase}）"
     elif progress.phase == Phase.WRITING:
         pending = store.signals.load_pending_commit()
+        pending_checkpoint = store.signals.load_pending_checkpoint()
         latest = store.checkpoints.latest_global()
 
-        if pending is not None:
+        if pending_checkpoint is not None:
+            lines.append(f"已完成第 {pending_checkpoint.pause_after_chapter} 章，正在等待用户确认是否继续编写。")
+            lines.append(f"确认后将从第 {pending_checkpoint.next_chapter} 章继续。")
+            label = f"恢复：第 {pending_checkpoint.pause_after_chapter} 章检查点待确认"
+        elif pending is not None:
             lines.append(f"第 {pending.chapter} 章提交中途中断（阶段：{pending.stage}）。请调用 writer 重新提交该章。")
             label = f"恢复：第 {pending.chapter} 章提交中断"
         elif progress.pending_rewrites:

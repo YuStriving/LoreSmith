@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light;
+  font-family: 'Inter', 'Noto Serif SC', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 215, 170, 0.28), transparent 22%),
+    radial-gradient(circle at 85% 12%, rgba(255, 239, 209, 0.82), transparent 30%),
+    linear-gradient(135deg, #fdf8f1 0%, #fbf4ea 52%, #fcf7ef 100%);
+  color: #2f241a;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --brand-50: #fff4e8;
+  --brand-100: #ffe5cc;
+  --brand-300: #f8b86f;
+  --brand-400: #f49d45;
+  --brand-500: #ed8a2f;
+  --brand-600: #df7420;
+  --panel: rgba(255, 248, 240, 0.72);
+  --panel-strong: rgba(255, 248, 240, 0.86);
+  --surface-soft: rgba(255, 246, 238, 0.88);
+  --surface-warm: rgba(255, 238, 212, 0.72);
+  --border-soft: rgba(235, 214, 191, 0.78);
+  --text-strong: #2f241a;
+  --text-body: #5f4c3a;
+  --text-muted: #88735d;
+  --shadow-soft: 8px 8px 24px rgba(180, 140, 100, 0.08), -4px -4px 16px rgba(255, 255, 255, 0.72);
+  --shadow-card: 12px 12px 32px rgba(180, 140, 100, 0.1), -6px -6px 20px rgba(255, 255, 255, 0.78);
+  --shadow-floating: 0 28px 80px rgba(231, 183, 130, 0.18);
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 18px;
+  --font-display: 'Playfair Display', 'Noto Serif SC', serif;
+  --font-body: 'Inter', 'Noto Serif SC', sans-serif;
+}

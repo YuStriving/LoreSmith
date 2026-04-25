@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -11,6 +12,7 @@ from ainovel_py.agents.runner import AgentRunner
 from ainovel_py.bootstrap.config import Config
 from ainovel_py.domain.runtime import Phase
 from ainovel_py.domain.runtime_events import RuntimeQueueItem, RuntimeQueueKind, RuntimeQueuePriority
+from ainovel_py.domain.writing import PendingRunCheckpoint
 from ainovel_py.host.events import Event, StreamChunk, UISnapshot, build_start_prompt
 from ainovel_py.host.resume import build_resume_prompt
 from ainovel_py.store.store import Store
@@ -56,6 +58,10 @@ class Host:
         progress = self.store.progress.load()
         latest_cp = self.store.checkpoints.latest_global()
         last_commit = self.store.signals.load_last_commit()
+        pending_checkpoint = self.store.signals.load_pending_checkpoint()
+        current_chapter = progress.current_chapter if progress else 0
+        if pending_checkpoint is not None:
+            current_chapter = pending_checkpoint.next_chapter
         return {
             "provider": self.cfg.provider,
             "model": self.cfg.model,
@@ -63,7 +69,7 @@ class Host:
             "lifecycle": self.lifecycle,
             "output_dir": self.store.dir(),
             "completed_chapters": len(progress.completed_chapters) if progress else 0,
-            "current_chapter": progress.current_chapter if progress else 0,
+            "current_chapter": current_chapter,
             "total_word_count": progress.total_word_count if progress else 0,
             "flow": progress.flow if progress else "",
             "phase": progress.phase if progress else "",
@@ -75,6 +81,7 @@ class Host:
             if latest_cp
             else None,
             "has_last_commit": bool(last_commit),
+            "awaiting_confirmation": self._pending_checkpoint_payload(pending_checkpoint),
         }
 
     def ask_user(self) -> _DummyAskUser:
@@ -112,13 +119,49 @@ class Host:
         )
         user_prompt = "\n".join(f"{item.get('role', 'user')}: {item.get('content', '')}" for item in history)
         raw = client.complete_stream(prompt, user_prompt, on_delta=on_delta, temperature=0.6)
-        import json
-        data = json.loads(raw)
-        return {
-            "message": str(data.get("message", "") or ""),
-            "prompt": str(data.get("prompt", "") or ""),
-            "ready": bool(data.get("ready", False)),
-        }
+        if not (raw or "").strip():
+            raw = client.complete(prompt, user_prompt, temperature=0.6)
+        try:
+            data = self._extract_json_object(raw)
+            return {
+                "message": str(data.get("message", "") or ""),
+                "prompt": str(data.get("prompt", "") or ""),
+                "ready": bool(data.get("ready", False)),
+            }
+        except ValueError:
+            text = (raw or "").strip()
+            if not text:
+                raise RuntimeError("assistant reply is empty")
+            return {
+                "message": text,
+                "prompt": "",
+                "ready": False,
+            }
+
+    @staticmethod
+    def _extract_json_object(raw: str) -> dict[str, object]:
+        text = (raw or "").strip()
+        if not text:
+            raise ValueError("empty co-create reply")
+        candidates = [text]
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if len(lines) >= 3:
+                fence_body = "\n".join(lines[1:-1]).strip()
+                if fence_body:
+                    candidates.insert(0, fence_body)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidates.append(text[start : end + 1])
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                continue
+        raise ValueError("co-create reply is not valid JSON")
 
     def switch_model(self, role: str, provider: str, model: str) -> None:
         if not provider or not model:
@@ -153,7 +196,7 @@ class Host:
             style=self.cfg.style,
             runtime_state=self.lifecycle,
             status_label=self._derive_status_label(progress),
-            backend=f"llm/{self.cfg.orchestrator}",
+            backend=f"llm/langgraph",
             context_window=self.cfg.context_window,
         )
         if progress:
@@ -193,12 +236,14 @@ class Host:
             snap.context_tokens = approx_tokens
             if self.cfg.context_window > 0:
                 snap.context_percent = round((approx_tokens / self.cfg.context_window) * 100, 2)
-        snap.agent_status = ["coordinator: ready", f"backend: llm/{self.cfg.orchestrator}"]
+        snap.agent_status = ["coordinator: ready", f"backend: llm/langgraph"]
         return snap
 
     def _derive_status_label(self, progress) -> str:
         if progress and progress.phase == Phase.COMPLETE:
             return "COMPLETE"
+        if self.store.signals.load_pending_checkpoint() is not None:
+            return "AWAITING_CONFIRMATION"
         if progress and progress.flow == "reviewing":
             return "REVIEW"
         if progress and progress.flow in {"rewriting", "polishing"}:
@@ -288,12 +333,19 @@ class Host:
             self.lifecycle = "completed"
             self._emit_event(Event(time=datetime.now(), category="SYSTEM", summary="创作完成", level="success"))
         else:
-            self.lifecycle = "idle"
-            self._emit_event(Event(time=datetime.now(), category="SYSTEM", summary="Coordinator 停止", level="warn"))
+            if self.store.signals.load_pending_checkpoint() is not None:
+                self.lifecycle = "paused"
+                self._emit_event(Event(time=datetime.now(), category="SYSTEM", summary="等待用户确认继续编写", level="info"))
+            else:
+                self.lifecycle = "idle"
+                self._emit_event(Event(time=datetime.now(), category="SYSTEM", summary="Coordinator 停止", level="warn"))
         self._safe_put(self.done_ch, True)
 
+    def _append_runtime_item(self, item: RuntimeQueueItem) -> None:
+        self.store.runtime.append_queue(item)
+
     def _append_runtime_stream_chunk(self, channel: str, delta: str) -> None:
-        self.store.runtime.append_queue(
+        self._append_runtime_item(
             RuntimeQueueItem(
                 kind=RuntimeQueueKind.STREAM_CHUNK,
                 priority=RuntimeQueuePriority.BACKGROUND,
@@ -301,8 +353,41 @@ class Host:
             )
         )
 
+    def emit_checkpoint_pending(self, pending: PendingRunCheckpoint) -> None:
+        payload = self._pending_checkpoint_payload(pending)
+        self._append_runtime_item(
+            RuntimeQueueItem(
+                kind=RuntimeQueueKind.UI_EVENT,
+                priority=RuntimeQueuePriority.CONTROL,
+                category="RUN",
+                summary=f"已完成第{pending.pause_after_chapter}章，等待用户确认继续",
+                payload={"level": "info", "event": "run.awaiting_confirmation", "awaiting_confirmation": payload},
+            )
+        )
+        self._safe_put(self.events, Event(time=datetime.now(), category="RUN", summary=f"已完成第{pending.pause_after_chapter}章，等待用户确认继续", level="info"))
+
+    @staticmethod
+    def _pending_checkpoint_payload(pending: PendingRunCheckpoint | None) -> dict[str, object] | None:
+        if pending is None:
+            return None
+        return {
+            "pause_after_chapter": pending.pause_after_chapter,
+            "next_chapter": pending.next_chapter,
+            "completed_count": pending.completed_count,
+            "status": pending.status,
+        }
+
     def _emit_event(self, ev: Event) -> None:
         self._safe_put(self.events, ev)
+        self._append_runtime_item(
+            RuntimeQueueItem(
+                kind=RuntimeQueueKind.UI_EVENT,
+                priority=RuntimeQueuePriority.BACKGROUND,
+                category=ev.category,
+                summary=ev.summary,
+                payload={"level": ev.level},
+            )
+        )
 
     def _emit_delta(self, channel: str, delta: str) -> None:
         if not delta:
@@ -320,7 +405,7 @@ class Host:
         self._emit_stream_chunk("content", text)
 
     def _emit_clear(self) -> None:
-        self.store.runtime.append_queue(
+        self._append_runtime_item(
             RuntimeQueueItem(
                 kind=RuntimeQueueKind.STREAM_CLEAR,
                 priority=RuntimeQueuePriority.BACKGROUND,

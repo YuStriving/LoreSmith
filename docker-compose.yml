@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ainovel-postgres
+    environment:
+      POSTGRES_DB: ainovel
+      POSTGRES_USER: ainovel
+      POSTGRES_PASSWORD: ainovel
+    ports:
+      - "5432:5432"
+    volumes:
+      - ainovel-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ainovel -d ainovel"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  ainovel-postgres-data:

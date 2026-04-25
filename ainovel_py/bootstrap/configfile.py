@@ -79,7 +79,6 @@ def _config_from_dict(data: dict[str, Any]) -> Config:
         roles=roles,
         style=str(data.get("style", "") or ""),
         context_window=int(data.get("context_window", 0) or 0),
-        orchestrator=str(data.get("orchestrator", "") or ""),
     )
 
 
@@ -92,8 +91,6 @@ def _merge_config(base: Config, overlay: Config) -> Config:
         base.style = overlay.style
     if overlay.context_window > 0:
         base.context_window = overlay.context_window
-    if overlay.orchestrator:
-        base.orchestrator = overlay.orchestrator
 
     for key, value in overlay.providers.items():
         existing = base.providers.get(key)
@@ -181,6 +178,5 @@ def save_config(path: str, cfg: Config) -> None:
         },
         "style": cfg.style,
         "context_window": cfg.context_window,
-        "orchestrator": cfg.orchestrator,
     }
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

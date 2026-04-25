@@ -58,7 +58,6 @@ class Config:
     roles: dict[str, RoleConfig] = field(default_factory=dict)
     style: str = "default"
     context_window: int = 128000
-    orchestrator: str = "langgraph"
 
     def fill_defaults(self) -> None:
         if not self.output_dir:
@@ -67,8 +66,6 @@ class Config:
             self.style = "default"
         if self.context_window <= 0:
             self.context_window = 128000
-        if self.orchestrator not in {"imperative", "langgraph"}:
-            self.orchestrator = "langgraph"
 
     def validate_base(self) -> None:
         if not self.provider:

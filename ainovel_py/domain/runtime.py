@@ -61,6 +61,11 @@ class RunMeta:
     provider: str = ""
     style: str = ""
     model: str = ""
+    story_title: str = ""
+    genre: str = ""
+    min_words: int = 1200
+    target_words: int = 1800
+    max_words: int = 2600
     planning_tier: str = ""
     steer_history: list[SteerEntry] = field(default_factory=list)
     pending_steer: str = ""

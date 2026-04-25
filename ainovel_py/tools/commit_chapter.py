@@ -155,11 +155,6 @@ class CommitChapterTool:
         progress = self.store.progress.load()
         review_required = False
         review_reason = ""
-        if progress is not None:
-            completed = len(progress.completed_chapters)
-            review_required = completed > 0 and completed % 3 == 0
-            if review_required:
-                review_reason = f"每完成 3 章触发一次审阅（当前已完成 {completed} 章）"
 
         feedback_raw = args.get("feedback")
         feedback = None
@@ -194,8 +189,6 @@ class CommitChapterTool:
                 hints.append(f"[系统] {verb}完成: 第 {chapter} 章已完成{verb}。剩余待处理章节: {remaining}。")
             else:
                 hints.append(f"[系统] {verb}全部完成: 第 {chapter} 章已完成{verb}，继续写第 {chapter + 1} 章。")
-        elif review_required:
-            hints.append(f"[系统] review_required: {review_reason}。请调用 editor 进行全局审阅。")
         else:
             if progress and progress.total_chapters > 0:
                 hints.append(

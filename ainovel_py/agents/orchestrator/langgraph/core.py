@@ -12,6 +12,8 @@ from ainovel_py.agents.runner import AgentRunner, LLMCoordinatorBackend
 from ainovel_py.assets import load_bundle
 from ainovel_py.bootstrap.config import Config
 from ainovel_py.domain.runtime import FlowState
+from ainovel_py.domain.runtime_events import RuntimeQueueItem, RuntimeQueueKind, RuntimeQueuePriority
+from ainovel_py.domain.writing import PendingRunCheckpoint
 from ainovel_py.host.events import Event
 from ainovel_py.store.store import Store
 
@@ -30,6 +32,7 @@ from .nodes import (
     route_after_checkpoint,
     route_after_commit,
     route_after_load,
+    route_after_plan,
     volume_summary_node,
 )
 from .state import GraphState
@@ -67,6 +70,11 @@ class LangGraphRuntime(LLMCoordinatorBackend):
     def wait_idle(self) -> None:
         return
 
+    def emit_checkpoint_pending(self, pending: PendingRunCheckpoint) -> None:
+        handler = getattr(self.runner.backend, 'emit_checkpoint_pending', None)
+        if callable(handler):
+            handler(pending)
+
     def _invoke(self, seed_text: str, resume_mode: bool) -> None:
         state: GraphState = {
             "seed_text": seed_text,
@@ -79,7 +87,7 @@ class LangGraphRuntime(LLMCoordinatorBackend):
         result = self.graph.invoke(state)
         out_lines = result.get("out_lines") or []
         if out_lines:
-            self.emit_stream("content", "\n".join(out_lines) + "\n")
+            self.emit_stream("thinking", "\n".join(out_lines) + "\n")
 
     def build_client(self) -> OpenAICompatClient:
         pc = self.cfg.providers.get(self.cfg.provider)
@@ -94,6 +102,9 @@ class LangGraphRuntime(LLMCoordinatorBackend):
             base_url=pc.base_url,
             timeout=120.0,
         )
+
+    def _dict_to_chapter_plan(self, data: dict[str, Any]):
+        return self.runner.backend._dict_to_chapter_plan(data) if hasattr(self.runner, "backend") else LLMCoordinatorBackend._dict_to_chapter_plan(data)
 
     def _build_graph(self):
         graph = StateGraph(GraphState)
@@ -123,7 +134,14 @@ class LangGraphRuntime(LLMCoordinatorBackend):
             },
         )
         graph.add_edge("novel_context", "plan_chapter")
-        graph.add_edge("plan_chapter", "generate_draft")
+        graph.add_conditional_edges(
+            "plan_chapter",
+            route_after_plan,
+            {
+                "generate_draft": "generate_draft",
+                "finish": "finish",
+            },
+        )
         graph.add_edge("generate_draft", "commit_chapter")
         graph.add_conditional_edges(
             "commit_chapter",

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from ainovel_py.agents.build import build_coordinator_loop, build_tool_registry
-from ainovel_py.agents.orchestrator.imperative_adapter import ImperativeOrchestrator
 from ainovel_py.bootstrap.config import Config, ProviderConfig
 from ainovel_py.store.store import Store
 
 
-def _cfg(orchestrator: str) -> Config:
+def _cfg() -> Config:
     return Config(
         output_dir="output/novel",
         provider="openai",
@@ -14,7 +13,6 @@ def _cfg(orchestrator: str) -> Config:
         providers={"openai": ProviderConfig(api_key="dummy-key")},
         style="default",
         context_window=128000,
-        orchestrator=orchestrator,
     )
 
 
@@ -32,11 +30,6 @@ def main() -> int:
     )
     cfg_default.fill_defaults()
 
-    cfg_imperative = _cfg("imperative")
-    loop = build_coordinator_loop(cfg_imperative, store, lambda event: None, lambda channel, delta: None)
-    if not isinstance(loop.backend, ImperativeOrchestrator):
-        raise RuntimeError("imperative backend not selected")
-
     tools = build_tool_registry(store)
     if "novel_context" not in tools:
         raise RuntimeError("tool registry missing novel_context")
@@ -53,7 +46,7 @@ def main() -> int:
     if not isinstance(loop.backend, LangGraphRuntime):
         raise RuntimeError("default backend should be langgraph")
 
-    cfg_langgraph = _cfg("langgraph")
+    cfg_langgraph = _cfg()
     loop = build_coordinator_loop(cfg_langgraph, store, lambda event: None, lambda channel, delta: None)
     if not isinstance(loop.backend, LangGraphRuntime):
         raise RuntimeError("langgraph backend not selected")

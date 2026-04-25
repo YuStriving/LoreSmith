@@ -1,2 +1,29 @@
+# Java
+java-platform/target/
+java-platform/.idea/
+java-platform/*.iml
+.gradle/
+
+# Python 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# 缓存文件
 __pycache__/
 ainovel_py.egg-info/
+*.py[cod]
+*.so
+
+# 编辑器、系统文件
+.idea/
+.vscode/
+.DS_Store
+.claude/
+docs/
+
+# 前端
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-web/.env.local

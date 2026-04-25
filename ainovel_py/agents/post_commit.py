@@ -28,13 +28,15 @@ def plan_post_commit(commit_res: dict[str, Any], chapter: int) -> PostCommitPlan
     actions = parse_hint_actions(hints)
     action_plan = plan_actions(actions)
     next_action = action_plan.next_action
-    pending_review_for = chapter if next_action == "review" else None
+    pending_review_for = None
+    if next_action == "review":
+        next_action = "checkpoint"
     return PostCommitPlan(
         hints=hints,
         actions=actions,
         next_action=next_action,
         pending_review_for=pending_review_for,
-        queue=list(action_plan.queue),
+        queue=[item for item in action_plan.queue if item != "review"],
     )
 
 

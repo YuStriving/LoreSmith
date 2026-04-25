@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
+import json
 from typing import Any, Callable
 
 from ainovel_py.agents.hints import has_placeholder_action
@@ -15,6 +16,7 @@ from ainovel_py.agents.llm_client import OpenAICompatClient
 from ainovel_py.agents.orchestrator.interface import OrchestratorBackend
 from ainovel_py.assets import load_bundle
 from ainovel_py.bootstrap.config import Config
+from ainovel_py.domain.writing import ChapterContract, ChapterPlan
 from ainovel_py.host.events import Event
 
 
@@ -169,7 +171,7 @@ class LLMCoordinatorBackend:
                     out_lines.append("[hint-actions] " + ", ".join(a.value for a in plan.actions))
             steps += 1
 
-        self.emit_stream("content", "\n".join(out_lines) + "\n")
+        self.emit_stream("thinking", "\n".join(out_lines) + "\n")
 
     def _build_rewrite_context(self, progress: Any, context: dict[str, Any]) -> dict[str, Any]:
         merged = dict(context)
@@ -180,7 +182,7 @@ class LLMCoordinatorBackend:
             merged["rewrite_issues"] = latest_review.get("issues") or []
         return merged
 
-    def _build_dynamic_plan(self, seed_text: str, chapter: int, context: dict[str, Any]) -> dict[str, Any]:
+    def _build_dynamic_plan(self, seed_text: str, chapter: int, context: dict[str, Any], feedback: str = "") -> dict[str, Any]:
         outline = context.get("current_chapter_outline") or {}
         latest_review = context.get("latest_review") or {}
         recent_summaries = context.get("recent_summaries") or []
@@ -190,6 +192,11 @@ class LLMCoordinatorBackend:
                 desc = str(issue.get("description", "") or "").strip()
                 if desc:
                     review_focus.append(desc)
+        character_names = [
+            str(item.get("name", "") or "").strip()
+            for item in (context.get("characters") or [])
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        ]
         summary_focus = [str(item.get("summary", "") or "") for item in recent_summaries if isinstance(item, dict)]
         rewrite_reason = str(context.get("rewrite_reason", "") or "")
         rewrite_issues = [
@@ -197,6 +204,10 @@ class LLMCoordinatorBackend:
             for item in (context.get("rewrite_issues") or [])
             if isinstance(item, dict)
         ]
+        meta = self.store.run_meta.load()
+        min_words_default = meta.min_words if meta else 1200
+        target_words_default = meta.target_words if meta else 1800
+        max_words_default = meta.max_words if meta else 2600
         contract = {
             "required_beats": [
                 str(outline.get("core_event", "") or "推进主线"),
@@ -204,16 +215,17 @@ class LLMCoordinatorBackend:
                 str(outline.get("hook", "") or "章末制造明确悬念"),
             ],
             "forbidden_moves": ["提前完结主线", "无铺垫引入重大设定变更"],
-            "continuity_checks": review_focus or ["延续前文章节因果", "角色称谓与状态一致"],
+            "continuity_checks": (review_focus or ["延续前文章节因果", "角色称谓与状态一致"])
+            + (["严格使用用户提供的人物名称，不要擅自替换主角或创造同位角色"] if character_names else []),
             "evaluation_focus": ["节奏递进", "冲突兑现", "章末钩子有效"] + review_focus[:2] + rewrite_issues[:2],
             "emotion_target": "紧张推进并在章末提升期待",
             "payoff_points": summary_focus[:2],
             "hook_goal": str(outline.get("hook", "") or "形成强追读欲望"),
-            "min_words": 1200,
-            "target_words": 1800,
-            "max_words": 2600,
+            "min_words": min_words_default,
+            "target_words": target_words_default,
+            "max_words": max_words_default,
         }
-        return {
+        base_plan = {
             "chapter": chapter,
             "title": str(outline.get("title", "") or f"第{chapter}章"),
             "goal": str(outline.get("core_event", "") or "推进主线冲突并制造新的局面"),
@@ -223,6 +235,72 @@ class LLMCoordinatorBackend:
             "notes": f"seed={seed_text[:80]} | rewrite_reason={rewrite_reason[:120]}",
             "contract": contract,
         }
+        if feedback:
+            revised = self._revise_plan_with_feedback(seed_text, chapter, context, base_plan, feedback)
+            if revised:
+                return revised
+            base_plan["notes"] = (str(base_plan.get("notes", "") or "") + f" | feedback={feedback[:120]}").strip()
+        return base_plan
+
+    def _revise_plan_with_feedback(
+        self,
+        seed_text: str,
+        chapter: int,
+        context: dict[str, Any],
+        base_plan: dict[str, Any],
+        feedback: str,
+    ) -> dict[str, Any] | None:
+        pc = self.cfg.providers.get(self.cfg.provider)
+        if pc is None or not pc.api_key:
+            return None
+        try:
+            client = OpenAICompatClient(api_key=pc.api_key, model=self.cfg.model, base_url=pc.base_url, timeout=120.0)
+            pack = self.context_manager.build_writer_pack(context)
+            system_prompt = "你是小说章节规划助手，只输出 JSON。请基于既有章节上下文和用户反馈，返回修订后的本章计划。"
+            prompt = (
+                f"请修订第{chapter}章计划，严格输出 JSON 对象，字段必须包含：chapter,title,goal,conflict,hook,emotion_arc,notes,contract。"
+                f"contract 内字段：required_beats,forbidden_moves,continuity_checks,evaluation_focus,emotion_target,payoff_points,hook_goal,min_words,target_words,max_words。\n\n"
+                f"[用户方向]\n{seed_text}\n\n"
+                f"[用户反馈]\n{feedback}\n\n"
+                f"[当前计划]\n{json.dumps(base_plan, ensure_ascii=False)}\n\n"
+                f"{pack.summary_block or ''}"
+            )
+            raw = client.complete(system_prompt, prompt, temperature=0.4)
+            data = json.loads(raw)
+            plan = self._chapter_plan_to_dict(self._dict_to_chapter_plan(data))
+            plan["notes"] = (str(plan.get("notes", "") or "") + f" | feedback={feedback[:120]}").strip()
+            return plan
+        except Exception:
+            return None
+
+    @staticmethod
+    def _dict_to_chapter_plan(data: dict[str, Any]) -> ChapterPlan:
+        contract_data = data.get("contract") or {}
+        return ChapterPlan(
+            chapter=int(data.get("chapter", 0) or 0),
+            title=str(data.get("title", "") or ""),
+            goal=str(data.get("goal", "") or ""),
+            conflict=str(data.get("conflict", "") or ""),
+            hook=str(data.get("hook", "") or ""),
+            emotion_arc=str(data.get("emotion_arc", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+            contract=ChapterContract(
+                required_beats=[str(x) for x in (contract_data.get("required_beats") or [])],
+                forbidden_moves=[str(x) for x in (contract_data.get("forbidden_moves") or [])],
+                continuity_checks=[str(x) for x in (contract_data.get("continuity_checks") or [])],
+                evaluation_focus=[str(x) for x in (contract_data.get("evaluation_focus") or [])],
+                emotion_target=str(contract_data.get("emotion_target", "") or ""),
+                payoff_points=[str(x) for x in (contract_data.get("payoff_points") or [])],
+                hook_goal=str(contract_data.get("hook_goal", "") or ""),
+                min_words=int(contract_data.get("min_words", 1200) or 1200),
+                target_words=int(contract_data.get("target_words", 1800) or 1800),
+                max_words=int(contract_data.get("max_words", 2600) or 2600),
+            ),
+        )
+
+    @staticmethod
+    def _chapter_plan_to_dict(plan: ChapterPlan) -> dict[str, Any]:
+        return asdict(plan)
 
     def _generate_chapter_with_context(
         self,
@@ -248,6 +326,13 @@ class LLMCoordinatorBackend:
         )
         foreshadow = "\n".join(
             f"- {item.get('id', '')}: {item.get('description', '')}" for item in (context.get("foreshadow_ledger") or [])[:6] if isinstance(item, dict)
+        )
+        character_lines = "\n".join(
+            f"- {item.get('name', '')} / {item.get('role', '')}: {item.get('description', '')}" for item in (context.get("characters") or [])[:8] if isinstance(item, dict)
+        )
+        world_rule_lines = "\n".join(
+            f"- {item.get('category', '')}: {item.get('rule', '')} {item.get('boundary', '')}".strip()
+            for item in (context.get("world_rules") or [])[:8] if isinstance(item, dict)
         )
         continuity = "\n".join(f"- {x}" for x in (contract.get("continuity_checks") or []))
         required_beats = "\n".join(f"- {x}" for x in (contract.get("required_beats") or []))
@@ -293,6 +378,12 @@ class LLMCoordinatorBackend:
 [本轮重写/打磨重点]
 {rewrite_focus or '- 无'}
 
+[主要人物]
+{character_lines or '- 无'}
+
+[世界规则]
+{world_rule_lines or '- 无'}
+
 [活跃伏笔]
 {foreshadow or '- 无'}
 
@@ -306,15 +397,17 @@ class LLMCoordinatorBackend:
 
 要求：
 1. 用中文小说正文直接写作。
-2. 目标长度 {target_words} 字左右，最低不少于 {min_words} 字，最高不超过 {max_words} 字。
-3. 章节内必须有明确场景推进，不要只是摘要式概述。
-4. 章节要吸收最近评审提醒，避免重复问题。
-5. 结尾必须形成强悬念或明确追读欲望。
+2. 只输出正文内容，不要输出章节标题、`第X章` 标题头、小标题、说明语或任何非正文包装。
+3. 目标长度 {target_words} 字左右，最低不少于 {min_words} 字，最高不超过 {max_words} 字。
+4. 章节内必须有明确场景推进，不要只是摘要式概述。
+5. 章节要吸收最近评审提醒，避免重复问题。
+6. 如果已提供人物名单，优先使用这些人物，名字必须保持一致，不要私自替换主角或额外创造同位角色。
+7. 结尾必须形成强悬念或明确追读欲望。
 """.strip()
         draft_chunks: list[str] = []
         stream_timeout = client.effective_stream_total_timeout()
         self.emit_event(Event(time=datetime.now(), category="LLM", summary=f"开始生成第{chapter}章正文（流式，超时 {int(stream_timeout)}s）", level="info"))
-        self.emit_stream("content", "\n[chapter-stream]\n")
+        self.emit_stream("thinking", "\n[chapter-stream]\n")
         draft = client.complete_stream(
             system_prompt,
             user_prompt,
@@ -341,6 +434,20 @@ class LLMCoordinatorBackend:
                 draft = draft.rstrip() + "\n\n" + extra.strip()
                 wc = len(draft)
                 self.emit_event(Event(time=datetime.now(), category="LLM", summary=f"第{chapter}章补写完成（{wc} 字）", level="info"))
+        if wc > max_words:
+            self.emit_event(Event(time=datetime.now(), category="LLM", summary=f"第{chapter}章字数超限，开始压缩（当前 {wc} / 上限 {max_words}）", level="warn"))
+            compress_prompt = f"""
+下面是第{chapter}章正文，请在保留主要情节、冲突、人物动机、伏笔和章末悬念的前提下压缩到不超过 {max_words} 字。
+不要改成摘要，要保留小说正文质感。
+
+[正文]
+{draft}
+""".strip()
+            compressed = client.complete(system_prompt, compress_prompt, temperature=0.4)
+            if compressed:
+                draft = compressed.strip()
+                wc = len(draft)
+                self.emit_event(Event(time=datetime.now(), category="LLM", summary=f"第{chapter}章压缩完成（{wc} 字）", level="info"))
         return draft, wc
 
     def _summarize_chapter(self, client: OpenAICompatClient, chapter: int, draft: str) -> str:

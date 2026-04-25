@@ -87,6 +87,30 @@ class ContextManager:
             summary_lines.append("[故事前提]\n" + premise[:300])
             compacted.append("premise")
 
+        characters = [
+            item for item in (context.get("characters") or [])
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        ][:8]
+        if characters:
+            summary_lines.append(
+                "[主要人物]\n" + "\n".join(
+                    f"- {item.get('name', '')} / {item.get('role', '')}: {item.get('description', '')}" for item in characters
+                )
+            )
+            compacted.append("characters")
+
+        world_rules = [
+            item for item in (context.get("world_rules") or [])
+            if isinstance(item, dict) and str(item.get("rule", "") or "").strip()
+        ][:8]
+        if world_rules:
+            summary_lines.append(
+                "[世界规则]\n" + "\n".join(
+                    f"- {item.get('category', '')}: {item.get('rule', '')} {item.get('boundary', '')}".strip() for item in world_rules
+                )
+            )
+            compacted.append("world_rules")
+
         outline = context.get("current_chapter_outline") or {}
         if outline:
             summary_lines.append(

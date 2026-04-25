@@ -320,6 +320,15 @@ class WorldStore:
     def save_world_rules(self, rules: list[WorldRule]) -> None:
         self.io.write_json("world_rules.json", [asdict(x) for x in rules])
 
+    def save_timeline(self, events: list[TimelineEvent]) -> None:
+        self.io.write_json("timeline.json", [asdict(x) for x in events])
+
+    def save_foreshadow_ledger(self, entries: list[ForeshadowEntry]) -> None:
+        self.io.write_json("foreshadow_ledger.json", [asdict(x) for x in entries])
+
+    def save_relationships(self, entries: list[RelationshipEntry]) -> None:
+        self.io.write_json("relationship_state.json", [asdict(x) for x in entries])
+
     def save_character_snapshots(self, volume: int, arc: int, snapshots: list[CharacterSnapshot]) -> None:
         payload = [asdict(x) for x in snapshots]
         self.io.write_json(f"meta/snapshots/v{volume:02d}a{arc:02d}.json", payload)

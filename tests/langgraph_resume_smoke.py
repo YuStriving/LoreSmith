@@ -76,7 +76,6 @@ def main() -> int:
         providers={"openai": ProviderConfig(api_key="test-key")},
         style="default",
         context_window=128000,
-        orchestrator="langgraph",
     )
     runner = type("Runner", (), {"call_tool": lambda self, name, args: build_tool_registry(store)[name].execute(args)})()
     runtime = StubLangGraphRuntime(cfg, runner, store, lambda event: None, lambda channel, delta: None)

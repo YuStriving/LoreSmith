@@ -30,6 +30,14 @@ class ChapterPlan:
 
 
 @dataclass
+class PendingRunCheckpoint:
+    pause_after_chapter: int
+    next_chapter: int
+    completed_count: int
+    status: str = "awaiting_confirmation"
+
+
+@dataclass
 class ChapterSummary:
     chapter: int
     summary: str

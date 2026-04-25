@@ -5,12 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ainovel-py"
 version = "0.1.0"
-description = "Python port of ainovel-cli (headless-first)"
+description = "LangGraph-based novel workflow kernel with Internal API"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "textual>=0.70.0",
   "langgraph>=0.2.0",
+  "fastapi>=0.116.0",
+  "uvicorn>=0.35.0",
 ]
 
 [tool.setuptools]

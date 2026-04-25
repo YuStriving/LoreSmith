@@ -17,6 +17,8 @@ class GraphState(TypedDict, total=False):
     rewrite_mode: str
     pending_actions: list[str]
     pending_action: str
+    plan_feedback: str
+    plan_decision: str
     stop_requested: bool
     error: str
     out_lines: list[str]

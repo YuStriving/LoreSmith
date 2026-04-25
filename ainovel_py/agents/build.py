@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from ainovel_py.agents.orchestrator.imperative_adapter import ImperativeOrchestrator
-from ainovel_py.agents.runner import AgentRunner, CoordinatorLoop, LLMCoordinatorBackend
+from ainovel_py.agents.runner import AgentRunner, CoordinatorLoop
 from ainovel_py.bootstrap.config import Config
 from ainovel_py.store.store import Store
 from ainovel_py.tools import (
@@ -34,6 +33,18 @@ def build_tool_registry(store: Store) -> dict[str, object]:
     return {tool.name(): tool for tool in tools}
 
 
+def _build_langgraph_runtime(
+    cfg: Config,
+    runner: AgentRunner,
+    store: Store,
+    emit_event,
+    emit_stream,
+):
+    from ainovel_py.agents.orchestrator.langgraph.core import LangGraphRuntime
+
+    return LangGraphRuntime(cfg, runner, store, emit_event, emit_stream)
+
+
 def build_coordinator_loop(
     cfg: Config,
     store: Store,
@@ -41,10 +52,5 @@ def build_coordinator_loop(
     emit_stream,
 ) -> CoordinatorLoop:
     runner = AgentRunner(build_tool_registry(store))
-    if cfg.orchestrator == "langgraph":
-        from ainovel_py.agents.orchestrator.langgraph.core import LangGraphRuntime
-
-        impl = LangGraphRuntime(cfg, runner, store, emit_event, emit_stream)
-    else:
-        impl = ImperativeOrchestrator(LLMCoordinatorBackend(cfg, runner, store, emit_event, emit_stream))
+    impl = _build_langgraph_runtime(cfg, runner, store, emit_event, emit_stream)
     return CoordinatorLoop(impl)

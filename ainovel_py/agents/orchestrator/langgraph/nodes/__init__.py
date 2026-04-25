@@ -13,6 +13,7 @@ from .core import (
     route_after_checkpoint,
     route_after_commit,
     route_after_load,
+    route_after_plan,
     volume_summary_node,
 )
 
@@ -32,4 +33,5 @@ __all__ = [
     "route_after_commit",
     "route_after_checkpoint",
     "route_after_load",
+    "route_after_plan",
 ]

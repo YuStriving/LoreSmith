@@ -1,0 +1,4 @@
+ALTER TABLE story_project
+    ADD COLUMN IF NOT EXISTS genre_code VARCHAR(64) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS characters_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS word_count_json JSONB NOT NULL DEFAULT '{}'::jsonb;

@@ -8,6 +8,7 @@ from ainovel_py.domain.review import (
     DimensionScore,
     ReviewEntry,
 )
+from ainovel_py.domain.writing import PendingRunCheckpoint
 from ainovel_py.store.io import IO
 
 
@@ -54,6 +55,24 @@ class SignalStore:
 
     def clear_pending_commit(self) -> None:
         self.io.remove_file("meta/pending_commit.json")
+
+    def save_pending_checkpoint(self, pending: PendingRunCheckpoint) -> None:
+        self.io.write_json("meta/pending_checkpoint.json", asdict(pending))
+
+    def load_pending_checkpoint(self) -> PendingRunCheckpoint | None:
+        try:
+            data = self.io.read_json("meta/pending_checkpoint.json")
+        except FileNotFoundError:
+            return None
+        return PendingRunCheckpoint(
+            pause_after_chapter=int(data.get("pause_after_chapter", 0) or 0),
+            next_chapter=int(data.get("next_chapter", 0) or 0),
+            completed_count=int(data.get("completed_count", 0) or 0),
+            status=str(data.get("status", "awaiting_confirmation") or "awaiting_confirmation"),
+        )
+
+    def clear_pending_checkpoint(self) -> None:
+        self.io.remove_file("meta/pending_checkpoint.json")
 
     def save_last_review(self, review: dict) -> None:
         self.io.write_json("meta/last_review.json", review)
@@ -107,3 +126,4 @@ class SignalStore:
     def clear_stale_signals(self) -> None:
         self.clear_last_commit()
         self.clear_last_review()
+        self.clear_pending_checkpoint()

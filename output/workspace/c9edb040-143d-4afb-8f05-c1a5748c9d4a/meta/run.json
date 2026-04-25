@@ -1,0 +1,14 @@
+{
+  "started_at": "2026-04-24T15:02:32.424461+00:00",
+  "provider": "openrouter",
+  "style": "poetic",
+  "model": "qwen3.5-flash",
+  "story_title": "",
+  "genre": "",
+  "min_words": 1200,
+  "target_words": 1800,
+  "max_words": 2600,
+  "planning_tier": "",
+  "steer_history": [],
+  "pending_steer": ""
+}
