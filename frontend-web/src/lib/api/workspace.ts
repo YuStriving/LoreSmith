@@ -1,7 +1,26 @@
 import { ApiError, apiFetch } from './client'
 import { pythonCreateRun, pythonFetch, pythonStream } from './pythonClient'
 import { fetchStories } from './stories'
-import type { StoryCharacter, StoryWorkspace, WorkspaceAssistantStreamResponse, WorkspaceNodeType, WorkspaceReference } from '../types/api'
+import type {
+  ArcPlan,
+  ArcSummary,
+  CharacterSnapshot,
+  StoryCharacter,
+  StoryCompass,
+  StoryReferenceDetail,
+  StoryWorkspace,
+  VolumePlan,
+  VolumeSummary,
+  WorkspaceAssistantStreamResponse,
+  WorkspaceCharacterItem,
+  WorkspaceForeshadowItem,
+  WorkspaceNodeType,
+  WorkspaceOutlineItem,
+  WorkspaceReference,
+  WorkspaceRelationshipItem,
+  WorkspaceTimelineItem,
+  WorkspaceWorldRuleItem,
+} from '../types/api'
 import {
   createWorkspaceFromStory,
   createWorkspaceNodeLocal,
@@ -14,28 +33,169 @@ function isWorkspaceFallbackError(error: unknown) {
   return error instanceof ApiError && [404, 405, 501].includes(error.status)
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
 function normalizeReferencePayload(payload: Record<string, unknown> | WorkspaceReference | null | undefined): WorkspaceReference {
   const source = (payload ?? {}) as Record<string, unknown>
   return {
     premise: typeof source.premise === 'string' ? source.premise : '',
-    outline: Array.isArray(source.outline) ? (source.outline as Array<Record<string, unknown>>) : [],
-    characters: Array.isArray(source.characters) ? (source.characters as Array<Record<string, unknown>>) : [],
+    outline: asArray<WorkspaceOutlineItem>(source.outline),
+    characters: asArray<WorkspaceCharacterItem>(source.characters),
     worldRules: Array.isArray(source.worldRules)
-      ? (source.worldRules as Array<Record<string, unknown>>)
+      ? (source.worldRules as WorkspaceWorldRuleItem[])
       : Array.isArray(source.world_rules)
-        ? (source.world_rules as Array<Record<string, unknown>>)
+        ? (source.world_rules as WorkspaceWorldRuleItem[])
         : [],
-    timeline: Array.isArray(source.timeline) ? (source.timeline as Array<Record<string, unknown>>) : [],
+    timeline: asArray<WorkspaceTimelineItem>(source.timeline),
     relationshipState: Array.isArray(source.relationshipState)
-      ? (source.relationshipState as Array<Record<string, unknown>>)
+      ? (source.relationshipState as WorkspaceRelationshipItem[])
       : Array.isArray(source.relationship_state)
-        ? (source.relationship_state as Array<Record<string, unknown>>)
+        ? (source.relationship_state as WorkspaceRelationshipItem[])
         : [],
     foreshadowLedger: Array.isArray(source.foreshadowLedger)
-      ? (source.foreshadowLedger as Array<Record<string, unknown>>)
+      ? (source.foreshadowLedger as WorkspaceForeshadowItem[])
       : Array.isArray(source.foreshadow_ledger)
-        ? (source.foreshadow_ledger as Array<Record<string, unknown>>)
+        ? (source.foreshadow_ledger as WorkspaceForeshadowItem[])
         : [],
+  }
+}
+
+function normalizeCompass(value: unknown): StoryCompass {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    endingDirection: typeof source.endingDirection === 'string' ? source.endingDirection : typeof source.ending_direction === 'string' ? String(source.ending_direction) : '',
+    openThreads: Array.isArray(source.openThreads) ? (source.openThreads as string[]) : Array.isArray(source.open_threads) ? (source.open_threads as string[]) : [],
+    estimatedScale: typeof source.estimatedScale === 'string' ? source.estimatedScale : typeof source.estimated_scale === 'string' ? String(source.estimated_scale) : '',
+    lastUpdated: typeof source.lastUpdated === 'number' ? source.lastUpdated : typeof source.last_updated === 'number' ? source.last_updated : 0,
+  }
+}
+
+function normalizeArcPlan(value: unknown): ArcPlan {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    index: typeof source.index === 'number' ? source.index : undefined,
+    title: typeof source.title === 'string' ? source.title : '',
+    goal: typeof source.goal === 'string' ? source.goal : '',
+    estimatedChapters:
+      typeof source.estimatedChapters === 'number'
+        ? source.estimatedChapters
+        : typeof source.estimated_chapters === 'number'
+          ? source.estimated_chapters
+          : 0,
+    chapters: asArray<WorkspaceOutlineItem>(source.chapters),
+  }
+}
+
+function normalizeVolumePlan(value: unknown): VolumePlan {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    index: typeof source.index === 'number' ? source.index : undefined,
+    title: typeof source.title === 'string' ? source.title : '',
+    theme: typeof source.theme === 'string' ? source.theme : '',
+    final: Boolean(source.final),
+    arcs: asArray<unknown>(source.arcs).map(normalizeArcPlan),
+  }
+}
+
+function normalizeCharacterSnapshot(value: unknown): CharacterSnapshot {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    volume: typeof source.volume === 'number' ? source.volume : 0,
+    arc: typeof source.arc === 'number' ? source.arc : 0,
+    name: typeof source.name === 'string' ? source.name : '',
+    status: typeof source.status === 'string' ? source.status : '',
+    power: typeof source.power === 'string' ? source.power : '',
+    motivation: typeof source.motivation === 'string' ? source.motivation : '',
+    relations: typeof source.relations === 'string' ? source.relations : '',
+  }
+}
+
+function normalizeArcSummary(value: unknown): ArcSummary {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    volume: typeof source.volume === 'number' ? source.volume : 0,
+    arc: typeof source.arc === 'number' ? source.arc : 0,
+    title: typeof source.title === 'string' ? source.title : '',
+    summary: typeof source.summary === 'string' ? source.summary : '',
+    keyEvents: Array.isArray(source.keyEvents) ? (source.keyEvents as string[]) : Array.isArray(source.key_events) ? (source.key_events as string[]) : [],
+  }
+}
+
+function normalizeVolumeSummary(value: unknown): VolumeSummary {
+  const source = (value ?? {}) as Record<string, unknown>
+  return {
+    volume: typeof source.volume === 'number' ? source.volume : 0,
+    title: typeof source.title === 'string' ? source.title : '',
+    summary: typeof source.summary === 'string' ? source.summary : '',
+    keyEvents: Array.isArray(source.keyEvents) ? (source.keyEvents as string[]) : Array.isArray(source.key_events) ? (source.key_events as string[]) : [],
+  }
+}
+
+function normalizeReferenceDetailPayload(payload: Record<string, unknown> | StoryReferenceDetail | null | undefined): StoryReferenceDetail {
+  const source = (payload ?? {}) as Record<string, unknown>
+  return {
+    storyId: typeof source.storyId === 'string' ? source.storyId : typeof source.story_id === 'string' ? String(source.story_id) : '',
+    title: typeof source.title === 'string' ? source.title : '',
+    premise: typeof source.premise === 'string' ? source.premise : '',
+    outline: asArray<WorkspaceOutlineItem>(source.outline),
+    layeredOutline: Array.isArray(source.layeredOutline)
+      ? (source.layeredOutline as VolumePlan[])
+      : asArray<unknown>(source.layered_outline).map(normalizeVolumePlan),
+    compass: normalizeCompass(source.compass),
+    characters: asArray<WorkspaceCharacterItem>(source.characters),
+    characterSnapshots: Array.isArray(source.characterSnapshots)
+      ? (source.characterSnapshots as CharacterSnapshot[])
+      : asArray<unknown>(source.character_snapshots).map(normalizeCharacterSnapshot),
+    worldRules: Array.isArray(source.worldRules)
+      ? (source.worldRules as WorkspaceWorldRuleItem[])
+      : Array.isArray(source.world_rules)
+        ? (source.world_rules as WorkspaceWorldRuleItem[])
+        : [],
+    timeline: asArray<WorkspaceTimelineItem>(source.timeline),
+    relationshipState: Array.isArray(source.relationshipState)
+      ? (source.relationshipState as WorkspaceRelationshipItem[])
+      : Array.isArray(source.relationship_state)
+        ? (source.relationship_state as WorkspaceRelationshipItem[])
+        : [],
+    foreshadowLedger: Array.isArray(source.foreshadowLedger)
+      ? (source.foreshadowLedger as WorkspaceForeshadowItem[])
+      : Array.isArray(source.foreshadow_ledger)
+        ? (source.foreshadow_ledger as WorkspaceForeshadowItem[])
+        : [],
+    arcSummaries: Array.isArray(source.arcSummaries)
+      ? (source.arcSummaries as ArcSummary[])
+      : asArray<unknown>(source.arc_summaries).map(normalizeArcSummary),
+    volumeSummaries: Array.isArray(source.volumeSummaries)
+      ? (source.volumeSummaries as VolumeSummary[])
+      : asArray<unknown>(source.volume_summaries).map(normalizeVolumeSummary),
+    progress: {
+      completedChapters:
+        typeof (source.progress as Record<string, unknown> | undefined)?.completedChapters === 'number'
+          ? Number((source.progress as Record<string, unknown>).completedChapters)
+          : typeof (source.progress as Record<string, unknown> | undefined)?.completed_chapters === 'number'
+            ? Number((source.progress as Record<string, unknown>).completed_chapters)
+            : 0,
+      currentChapter:
+        typeof (source.progress as Record<string, unknown> | undefined)?.currentChapter === 'number'
+          ? Number((source.progress as Record<string, unknown>).currentChapter)
+          : typeof (source.progress as Record<string, unknown> | undefined)?.current_chapter === 'number'
+            ? Number((source.progress as Record<string, unknown>).current_chapter)
+            : 0,
+      totalWordCount:
+        typeof (source.progress as Record<string, unknown> | undefined)?.totalWordCount === 'number'
+          ? Number((source.progress as Record<string, unknown>).totalWordCount)
+          : typeof (source.progress as Record<string, unknown> | undefined)?.total_word_count === 'number'
+            ? Number((source.progress as Record<string, unknown>).total_word_count)
+            : 0,
+      currentVolume:
+        typeof (source.progress as Record<string, unknown> | undefined)?.currentVolume === 'number'
+          ? Number((source.progress as Record<string, unknown>).currentVolume)
+          : typeof (source.progress as Record<string, unknown> | undefined)?.current_volume === 'number'
+            ? Number((source.progress as Record<string, unknown>).current_volume)
+            : 0,
+    },
   }
 }
 
@@ -105,6 +265,39 @@ export async function fetchStoryWorkspaceReference(storyId: string, workspace?: 
       relationshipState: [],
       foreshadowLedger: [],
     } satisfies WorkspaceReference
+  }
+}
+
+export async function fetchStoryReferenceDetail(storyId: string, workspace?: StoryWorkspace) {
+  try {
+    const payload = await pythonFetch<Record<string, unknown>>(`/internal/v1/workspace/reference-detail?story_id=${encodeURIComponent(storyId)}`)
+    return normalizeReferenceDetailPayload(payload)
+  } catch (error) {
+    if (!isWorkspaceFallbackError(error)) {
+      throw error
+    }
+    return {
+      storyId,
+      title: workspace?.title ?? '',
+      premise: workspace?.premise ?? '',
+      outline: [],
+      layeredOutline: [],
+      compass: { openThreads: [] },
+      characters: [],
+      characterSnapshots: [],
+      worldRules: [],
+      timeline: [],
+      relationshipState: [],
+      foreshadowLedger: [],
+      arcSummaries: [],
+      volumeSummaries: [],
+      progress: {
+        completedChapters: 0,
+        currentChapter: 0,
+        totalWordCount: 0,
+        currentVolume: 0,
+      },
+    } satisfies StoryReferenceDetail
   }
 }
 

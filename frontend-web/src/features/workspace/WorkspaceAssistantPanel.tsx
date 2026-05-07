@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { AwaitingConfirmation, StoryWorkspace, WorkspaceReference } from '../../lib/types/api'
 
 type WorkspaceAssistantPanelProps = {
@@ -59,6 +60,7 @@ export function WorkspaceAssistantPanel({
   isContinuingRun = false,
 }: WorkspaceAssistantPanelProps) {
   const [instruction, setInstruction] = useState('')
+  const navigate = useNavigate()
 
   const latestAssistant = useMemo(() => {
     if (streamingText.trim()) {
@@ -138,12 +140,15 @@ export function WorkspaceAssistantPanel({
         <div className='workspace-panel-list'>
           <ReferenceSection title='作品设定'>
             <p>{readText(reference.premise, '暂无作品设定')}</p>
+            <button type='button' className='primary-button primary-button--small workspace-reference-entry' onClick={() => navigate(`/stories/${workspace.storyId}/reference`)}>
+              展开作品资料
+            </button>
           </ReferenceSection>
 
           <ReferenceSection title='大纲'>
             {reference.outline.length ? (
               <div className='workspace-reference-list'>
-                {reference.outline.map((item, index) => (
+                {reference.outline.slice(0, 4).map((item, index) => (
                   <div key={`outline-${index}`} className='workspace-reference-item'>
                     <strong>{readText(item.chapter, `第 ${index + 1} 章`)} {typeof item.title === 'string' && item.title.trim() ? `· ${item.title.trim()}` : ''}</strong>
                     <p>{readText(item.core_event, '暂无核心事件')}</p>
@@ -159,7 +164,7 @@ export function WorkspaceAssistantPanel({
           <ReferenceSection title='人物'>
             {reference.characters.length ? (
               <div className='character-list workspace-reference-characters'>
-                {reference.characters.map((item, index) => (
+                {reference.characters.slice(0, 4).map((item, index) => (
                   <div key={`character-${index}`} className='character-card workspace-reference-character-card'>
                     <strong>{readText(item.name, `人物 ${index + 1}`)}</strong>
                     <span>{readText(item.role, '未标注角色定位')}</span>
@@ -223,7 +228,7 @@ export function WorkspaceAssistantPanel({
           <ReferenceSection title='伏笔'>
             {reference.foreshadowLedger.length ? (
               <div className='workspace-reference-list'>
-                {reference.foreshadowLedger.map((item, index) => (
+                {reference.foreshadowLedger.slice(0, 4).map((item, index) => (
                   <div key={`foreshadow-${index}`} className='workspace-reference-item'>
                     <strong>{readText(item.id, `伏笔 ${index + 1}`)}</strong>
                     <p>{readText(item.description, '暂无伏笔说明')}</p>

@@ -197,12 +197,130 @@ export type StoryWorkspace = {
   runBridge?: WorkspaceRunBridge
 }
 
+export type WorkspaceOutlineItem = {
+  chapter?: number
+  title?: string
+  core_event?: string
+  hook?: string
+  scenes?: string[]
+}
+
+export type WorkspaceCharacterItem = {
+  name?: string
+  aliases?: string[]
+  role?: string | null
+  description?: string | null
+  summary?: string | null
+  arc?: string
+  traits?: string[]
+  tier?: string
+}
+
+export type WorkspaceWorldRuleItem = {
+  category?: string
+  rule?: string
+  boundary?: string
+}
+
+export type WorkspaceTimelineItem = {
+  chapter?: number
+  time?: string
+  event?: string
+  characters?: string[]
+}
+
+export type WorkspaceRelationshipItem = {
+  character_a?: string
+  character_b?: string
+  relation?: string
+  chapter?: number
+}
+
+export type WorkspaceForeshadowItem = {
+  id?: string
+  description?: string
+  planted_at?: number
+  status?: string
+  resolved_at?: number
+}
+
 export type WorkspaceReference = {
   premise: string
-  outline: Array<Record<string, unknown>>
-  characters: Array<Record<string, unknown>>
-  worldRules: Array<Record<string, unknown>>
-  timeline: Array<Record<string, unknown>>
-  relationshipState: Array<Record<string, unknown>>
-  foreshadowLedger: Array<Record<string, unknown>>
+  outline: WorkspaceOutlineItem[]
+  characters: WorkspaceCharacterItem[]
+  worldRules: WorkspaceWorldRuleItem[]
+  timeline: WorkspaceTimelineItem[]
+  relationshipState: WorkspaceRelationshipItem[]
+  foreshadowLedger: WorkspaceForeshadowItem[]
+}
+
+export type StoryCompass = {
+  endingDirection?: string
+  openThreads: string[]
+  estimatedScale?: string
+  lastUpdated?: number
+}
+
+export type ArcPlan = {
+  index?: number
+  title?: string
+  goal?: string
+  estimatedChapters?: number
+  chapters: WorkspaceOutlineItem[]
+}
+
+export type VolumePlan = {
+  index?: number
+  title?: string
+  theme?: string
+  final?: boolean
+  arcs: ArcPlan[]
+}
+
+export type CharacterSnapshot = {
+  volume?: number
+  arc?: number
+  name?: string
+  status?: string
+  power?: string
+  motivation?: string
+  relations?: string
+}
+
+export type ArcSummary = {
+  volume?: number
+  arc?: number
+  title?: string
+  summary?: string
+  keyEvents: string[]
+}
+
+export type VolumeSummary = {
+  volume?: number
+  title?: string
+  summary?: string
+  keyEvents: string[]
+}
+
+export type StoryReferenceDetail = {
+  storyId: string
+  title: string
+  premise: string
+  outline: WorkspaceOutlineItem[]
+  layeredOutline: VolumePlan[]
+  compass: StoryCompass
+  characters: WorkspaceCharacterItem[]
+  characterSnapshots: CharacterSnapshot[]
+  worldRules: WorkspaceWorldRuleItem[]
+  timeline: WorkspaceTimelineItem[]
+  relationshipState: WorkspaceRelationshipItem[]
+  foreshadowLedger: WorkspaceForeshadowItem[]
+  arcSummaries: ArcSummary[]
+  volumeSummaries: VolumeSummary[]
+  progress: {
+    completedChapters: number
+    currentChapter: number
+    totalWordCount: number
+    currentVolume: number
+  }
 }

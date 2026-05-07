@@ -10,92 +10,92 @@ Requires-Dist: uvicorn>=0.35.0
 
 # ainovel-py
 
-一个**基于 LangGraph 的角色化小说生成工作流系统**。它面向长篇/连载小说创作场景，围绕“规划 → 写作 → 一致性检查 → 提交 → 审阅 → 重写/打磨 → 长篇扩展”构建了一套可恢复、可追踪、可切换后端的本地运行时。
+一个面向长篇小说创作的多模块项目，当前由三个主要部分组成：
 
-当前项目默认使用 **LangGraph** 作为编排后端，同时保留 **imperative fallback** 作为兼容与回退路径。系统采用 **tool-driven workflow + file-based persistence** 设计：核心业务动作由 tools 执行，运行状态与中间结果落盘到本地文件，因此支持 resume、checkpoint、review/rewrite 队列和运行过程回放。
+- **frontend-web**：前端工作台
+- **java-platform**：平台层 API，当前主要承接 story 元数据与基础平台接口
+- **ainovel_py**：Python Agent Runtime，负责写作运行时、workspace、上下文组装、评审与流式事件输出
 
-![img](img/1.png)
+![img](img/1.jpg)
 
-## 1. 项目定位
-
-这个项目解决的不是“单次生成一段小说正文”，而是：
-
-- 如何把小说写作拆成结构化工作流
-- 如何让规划、写作、审阅、重写形成闭环
-- 如何把章节、摘要、人物、世界状态、审阅结果持续保存下来
-- 如何在进程中断后恢复创作，而不是从头开始
-
-因此，更准确地说，它是一个：
-
-> **基于 LangGraph 的小说生成工作流系统，带有多角色语义（planner / writer / editor / architect），但不是严格意义上的 Multi-Agent 系统。**
-
-## 2. 核心设计思想
-
-项目当前有四个核心设计思想：
-
-### 2.1 单主编排器 + 角色化阶段
-
-系统虽然有 writer / editor / architect / coordinator 等角色语义，但本质上仍是**单主编排器驱动的工作流系统**。角色体现在不同节点、提示词、工具和后处理逻辑里，而不是多个自治 agent 常驻协作。
-
-### 2.2 Tool-driven workflow
-
-规划、正文写入、提交、审阅、弧总结、卷总结等能力都封装成 tool，通过统一 runner 调用。这让业务动作与编排控制分离：
-
-- tools 负责做事
-- orchestrator 负责决定下一步走向
-
-### 2.3 本地持久化优先
-
-所有关键状态都写入本地文件：
-
-- progress
-- checkpoints
-- runtime queue
-- draft/final chapter
-- summaries
-- reviews
-- world state
-
-这样设计的好处是：
-
-- 可恢复
-- 可审计
-- 可回放
-- 对 UI / headless 都一致
-
-### 2.4 LangGraph 默认 + imperative fallback
-
-当前默认 orchestrator 已切到 `langgraph`，但仍保留 `imperative` 作为回退实现。这让架构迁移可以逐步进行，同时便于在出现问题时切换到旧的命令式执行路径。
-
-## 3. 整体运行架构
-
-系统的运行结构可以概括为：
+## 当前架构
 
 ```text
-用户输入
-  -> CLI / TUI / Headless 入口
-  -> Host
-  -> CoordinatorLoop
-  -> Orchestrator Backend
-       -> LangGraphRuntime (default)
-       -> Imperative backend (fallback)
-  -> AgentRunner / Tool Registry
-  -> Store / Checkpoints / Runtime Queue / Artifacts
+frontend-web
+  ├─ /api/v1/...      -> java-platform (Spring Boot)
+  └─ /internal/v1/... -> ainovel_py internal API (FastAPI)
+
+java-platform
+  └─ stories / health / 平台层基础能力
+
+ainovel_py
+  └─ runs / workspace / SSE stream / Agent orchestration / local store
 ```
 
-也可以按分层理解：
+### 前后端职责边界
 
-1. **入口层**：CLI / Headless / TUI
-2. **Host 层**：生命周期管理、状态快照、resume/start/continue/abort
-3. **编排层**：LangGraph 或 imperative loop
-4. **执行层**：tools + shared helper modules
-5. **持久化层**：Store + typed sub-stores + atomic IO
+#### Frontend
+前端负责工作台 UI、故事管理入口、workspace 编辑与运行状态展示。
 
-## 4. 编排模型
+当前 API 分流如下：
 
-## 4.1 默认后端：LangGraph
+- **Stories 相关接口走 Java**
+  - 见 [frontend-web/src/lib/api/stories.ts](frontend-web/src/lib/api/stories.ts)
+- **Runs / Workspace / Stream 相关接口走 Python**
+  - 见 [frontend-web/src/lib/api/runs.ts](frontend-web/src/lib/api/runs.ts)
+  - 见 [frontend-web/src/lib/api/workspace.ts](frontend-web/src/lib/api/workspace.ts)
+  - 见 [frontend-web/src/lib/api/pythonClient.ts](frontend-web/src/lib/api/pythonClient.ts)
+- Vite 开发代理：
+  - `/api` -> `127.0.0.1:8080`
+  - `/internal` -> `127.0.0.1:8000`
+  - 见 [frontend-web/vite.config.ts](frontend-web/vite.config.ts)
 
-默认情况下，系统通过 LangGraph 定义一个显式工作流图，用节点和条件边描述小说生成过程。典型节点包括：
+#### Java Platform
+Java 层当前是**平台层后端**，主要负责：
+
+- stories 基础 CRUD
+- health 等平台基础接口
+- 后续可扩展的平台能力：账号、权限、审计、持久化治理、统一 API 门面
+
+当前已确认的 HTTP 入口：
+
+- [java-platform/src/main/java/com/ainovel/platform/interfaces/http/StoryController.java](java-platform/src/main/java/com/ainovel/platform/interfaces/http/StoryController.java)
+- [java-platform/src/main/java/com/ainovel/platform/interfaces/http/HealthController.java](java-platform/src/main/java/com/ainovel/platform/interfaces/http/HealthController.java)
+
+当前 Java **不再承担 Python Agent 的运行时转发层**。
+
+#### Python Agent Runtime
+Python 层是当前的**Agent 运行时核心**，负责：
+
+- run 创建、查询、暂停、恢复、取消
+- workspace intent / run bridge / reference snapshot
+- SSE 流式事件输出
+- LangGraph 编排
+- 上下文装配
+- chapter draft / consistency check / commit / review / rewrite
+- 本地持久化与断点恢复
+
+运行入口：
+
+- [ainovel_py/entry/internal_api/run.py](ainovel_py/entry/internal_api/run.py)
+- [ainovel_py/internal_api/routes.py](ainovel_py/internal_api/routes.py)
+
+## Python Runtime 主流程
+
+当前 Python 运行时围绕章节级工作流组织。
+
+### 编排入口
+
+关键文件：
+
+- [ainovel_py/internal_api/app.py](ainovel_py/internal_api/app.py)
+- [ainovel_py/internal_api/service.py](ainovel_py/internal_api/service.py)
+- [ainovel_py/host/host.py](ainovel_py/host/host.py)
+- [ainovel_py/agents/build.py](ainovel_py/agents/build.py)
+- [ainovel_py/agents/orchestrator/langgraph/core.py](ainovel_py/agents/orchestrator/langgraph/core.py)
+- [ainovel_py/agents/orchestrator/langgraph/nodes/core.py](ainovel_py/agents/orchestrator/langgraph/nodes/core.py)
+
+### 典型 LangGraph 节点
 
 - `load_runtime_context`
 - `novel_context`
@@ -110,248 +110,147 @@ Requires-Dist: uvicorn>=0.35.0
 - `checkpoint`
 - `finish`
 
-这使得：
+### 真实写章主链路
 
-- 分支可见
-- resume 更自然
-- review/rewrite/longform 更容易扩展
-- 编排逻辑比传统 while-loop 更清晰
+1. `draft_chapter`
+2. `check_consistency`
+3. `commit_chapter`
 
-关键文件：
+## Python 如何参考前文
 
-- [ainovel\_py/agents/orchestrator/langgraph/core.py](ainovel_py/agents/orchestrator/langgraph/core.py)
-- [ainovel\_py/agents/orchestrator/langgraph/nodes/core.py](ainovel_py/agents/orchestrator/langgraph/nodes/core.py)
+当前续写不是简单把前文章节全文塞回模型，而是采用**结构化前文状态 + 摘要恢复**的方式。
 
-## 4.2 回退后端：imperative
+核心链路：
 
-旧的命令式执行路径仍保留在 `LLMCoordinatorBackend._run_loop` 中，用于：
-
-- 兼容旧行为
-- 验证 LangGraph 迁移期间的回退能力
-- 避免在极端情况下只有一条执行路径
+1. `novel_context` 读取前文上下文
+2. `ContextManager` 将上下文压缩为适合写作的 prompt 片段
+3. `plan_chapter` / `generate_draft` 使用这些上下文生成下一章
+4. `commit_chapter` 将本章沉淀为 summary / timeline / relationship / foreshadow / state changes，供后续章节使用
 
 关键文件：
 
-- [ainovel\_py/agents/runner.py](ainovel_py/agents/runner.py)
-- [ainovel\_py/agents/orchestrator/imperative\_adapter.py](ainovel_py/agents/orchestrator/imperative_adapter.py)
+- [ainovel_py/tools/novel_context.py](ainovel_py/tools/novel_context.py)
+- [ainovel_py/agents/context_manager.py](ainovel_py/agents/context_manager.py)
+- [ainovel_py/agents/runner.py](ainovel_py/agents/runner.py)
+- [ainovel_py/tools/commit_chapter.py](ainovel_py/tools/commit_chapter.py)
 
-## 4.3 backend 选择方式
+## 目录说明
 
-backend 选择发生在：
+| 路径 | 作用 |
+| --- | --- |
+| `frontend-web/` | React 前端工作台 |
+| `java-platform/` | Spring Boot 平台层 API |
+| `ainovel_py/internal_api` | Python Internal API、RunService、worker、routes |
+| `ainovel_py/host` | 运行生命周期管理、事件与快照 |
+| `ainovel_py/agents` | LangGraph 编排、上下文构建、运行器 |
+| `ainovel_py/tools` | plan / draft / commit / review / summary 等业务动作 |
+| `ainovel_py/store` | progress / checkpoint / runtime / drafts / world state 持久化 |
+| `ainovel_py/domain` | runtime / review / checkpoint / writing 等领域模型 |
+| `ainovel_py/assets` | prompts / references / styles |
+| `tests/` | Python 运行时相关 smoke / e2e / internal api 测试 |
 
-- [ainovel\_py/agents/build.py](ainovel_py/agents/build.py)
+## 本地运行
 
-当前默认配置：
+### 1. 启动 Java Platform
 
-- `orchestrator = "langgraph"`
-
-显式回退示例：
-
-```json
-{
-  "provider": "openrouter",
-  "model": "qwen3.5-flash",
-  "orchestrator": "imperative"
-}
+```bash
+cd java-platform
+mvn spring-boot:run
 ```
 
-## 5. 从用户意图到章节生成的主流程
+默认提供：
 
-一个典型的“开始写小说”流程如下：
+- `GET http://127.0.0.1:8080/api/v1/health`
+- `GET/POST/DELETE http://127.0.0.1:8080/api/v1/stories`
 
-1. 用户从 CLI/TUI 输入写作意图
-2. CLI 加载配置并创建 `Host`
-3. `Host.start()` 调用编排后端
-4. 编排器先加载当前 runtime context
-5. 调用 `novel_context` 组装小说上下文
-6. 调用 `plan_chapter` 生成章节计划与 contract
-7. 调用 LLM 生成章节正文
-8. 调用 `draft_chapter` 落盘草稿
-9. 调用 `check_consistency` 记录一致性检查
-10. 调用 `commit_chapter` 提交正式章节并更新 story state
-11. 根据返回的 hints/action plan 决定：
+### 2. 启动 Python Internal API
 
-- 继续下一章
-- 进入 review
-- 进入 rewrite / polish
-- 执行 arc / volume / longform 扩展
-
-也就是说，项目不是“每次让模型自由发挥一章”，而是以**章节为单位的状态机式写作流水线**。
-
-## 6. 核心模块与职责
-
-| 模块                          | 作用                                      |
-| --------------------------- | --------------------------------------- |
-| `ainovel_py/cli`            | CLI 参数解析、配置加载、模式分发                      |
-| `ainovel_py/entry/headless` | Headless 运行与 stdout/stderr 输出           |
-| `ainovel_py/entry/tui`      | 基于 Textual 的终端 UI                       |
-| `ainovel_py/host`           | 生命周期管理、状态快照、resume/start/continue/abort |
-| `ainovel_py/agents`         | 编排、共享 helper、上下文构建、后处理规划                |
-| `ainovel_py/tools`          | 规划、写稿、提交、审阅、总结等业务动作                     |
-| `ainovel_py/store`          | 本地持久化与 typed stores                     |
-| `ainovel_py/domain`         | 运行时状态、评审、写作、checkpoint 等领域模型            |
-| `ainovel_py/assets`         | prompts / references / styles 资源        |
-
-## 7. 持久化与可恢复机制
-
-项目采用本地文件持久化，默认输出目录是：
-
-```text
-output/novel
+```bash
+export AINOVEL_INTERNAL_API_HOST=127.0.0.1
+export AINOVEL_INTERNAL_API_PORT=8000
+export AINOVEL_INTERNAL_API_TOKEN=secret-token
+python -m ainovel_py.entry.internal_api.run
 ```
 
-常见持久化文件包括：
+健康检查：
 
-- `meta/progress.json`：阶段、当前章、已完成章节、rewrite 队列等
-- `meta/checkpoints.jsonl`：append-only checkpoint 流
-- `meta/runtime/queue.jsonl`：事件/流式输出回放队列
-- `meta/pending_commit.json`：提交中断恢复信息
-- `drafts/*.draft.md`：草稿
-- `chapters/*.md`：正式章节
-- `summaries/*.json`：章节摘要
-- `reviews/*.json`：评审结果
-- 世界状态类文件：timeline / relationships / foreshadow / state changes 等
+```bash
+curl -H "Authorization: Bearer secret-token" \
+  http://127.0.0.1:8000/internal/v1/health
+```
 
-底层 IO 使用原子写入方式，核心实现见：
+创建 run：
 
-- [ainovel\_py/store/io.py](ainovel_py/store/io.py)
-- [ainovel\_py/store/store.py](ainovel_py/store/store.py)
+```bash
+curl -X POST http://127.0.0.1:8000/internal/v1/runs \
+  -H "Authorization: Bearer secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "run_demo",
+    "story": {
+      "story_id": "story_demo",
+      "title": "雨夜觉醒",
+      "premise": "主角在雨夜觉醒并卷入阴谋。",
+      "style": "default"
+    },
+    "execution": {
+      "provider": "openrouter",
+      "model": "qwen3.5-flash",
+      "context_window": 128000
+    },
+    "input": {
+      "mode": "start",
+      "prompt": "写一部雨夜觉醒、阴谋、长篇网文风格小说。"
+    },
+    "storage": {
+      "kind": "local",
+      "base_path": "output/run_demo"
+    }
+  }'
+```
 
-这也是为什么系统可以支持：
+### 3. 启动前端
 
-- 运行中断后恢复
-- 从 checkpoint 边界恢复
-- UI/Headless 输出回放
+```bash
+cd frontend-web
+npm install
+npm run dev
+```
+
+开发时默认代理：
+
+- `/api` -> Java `8080`
+- `/internal` -> Python `8000`
+
+## 持久化
+
+Python Runtime 当前默认使用**本地文件持久化**。常见产物包括：
+
+- `meta/progress.json`
+- `meta/checkpoints.jsonl`
+- `meta/runtime/queue.jsonl`
+- `meta/pending_commit.json`
+- `drafts/*.draft.md`
+- `chapters/*.md`
+- `summaries/*.json`
+- `reviews/*.json`
+- timeline / relationships / foreshadow / state changes
+
+这使系统支持：
+
+- 中断恢复
+- checkpoint 恢复
+- 事件回放
 - review/rewrite 队列持续推进
 
-## 8. Tool System 设计
+## 配置
 
-项目的 tool 契约非常简单：
-
-- `name()`
-- `execute(args) -> dict`
-
-tool registry 在：
-
-- [ainovel\_py/agents/build.py](ainovel_py/agents/build.py)
-
-核心 tools 包括：
-
-- `novel_context`
-- `plan_chapter`
-- `draft_chapter`
-- `check_consistency`
-- `commit_chapter`
-- `save_review`
-- `save_arc_summary`
-- `save_volume_summary`
-- `save_foundation`
-
-这种设计的好处是：
-
-- 编排层不直接操作文件或世界状态
-- 业务动作的输入输出更明确
-- 更适合逐步迁移 orchestrator
-
-## 9. 共享编排基础设施
-
-为了减少 LangGraph 与 imperative 两套实现的漂移，项目已经把多处共享编排逻辑外提成独立模块：
-
-- [ainovel\_py/agents/hints.py](ainovel_py/agents/hints.py)\
-  负责 hint/action 解析与结构化 action planning
-- [ainovel\_py/agents/post\_commit.py](ainovel_py/agents/post_commit.py)\
-  负责 commit 后 / review 后的分支规划
-- [ainovel\_py/agents/longform.py](ainovel_py/agents/longform.py)\
-  负责 longform 扩展动作与 outline payload 生成
-- [ainovel\_py/agents/review\_flow.py](ainovel_py/agents/review_flow.py)\
-  负责 review 之后的 arc / volume follow-up
-
-这使得：
-
-- 旧 imperative runner 逐渐从“编排中心”变成“共享 helper 使用者”
-- LangGraph 节点也能复用同一套语义
-
-## 10. LLM 集成方式
-
-项目当前采用的是 **OpenAI-compatible HTTP client**，而不是绑定某一家 provider 的 SDK。
-
-核心实现：
-
-- [ainovel\_py/agents/llm\_client.py](ainovel_py/agents/llm_client.py)
-
-特点：
-
-- 支持 `base_url`
-- 支持流式输出
-- 支持内容流与 thinking channel
-- 支持 timeout 控制
-- 便于兼容多 provider
-
-这也是为什么配置层主要围绕：
-
-- `provider`
-- `model`
-- `base_url`
-- `api_key`
-
-而不是深度绑定某个特定云厂商 SDK。
-
-## 11. 交互模式
-
-### 11.1 TUI 模式
-
-基于：
-
-- [Textual](https://textual.textualize.io/)
-
-特点：
-
-- 实时查看 event log
-- 流式显示正文 / thinking
-- report / snapshot / 状态面板
-- 模型切换
-- 用户干预与共创模式
-
-入口：
-
-- [ainovel\_py/entry/tui/run.py](ainovel_py/entry/tui/run.py)
-- [ainovel\_py/entry/tui/app.py](ainovel_py/entry/tui/app.py)
-
-### 11.2 Headless 模式
-
-适合脚本化或 CI 场景：
-
-- 内容输出到 stdout
-- 事件 / thinking 输出到 stderr
-- 可从已有状态 resume
-
-入口：
-
-- [ainovel\_py/entry/headless/run.py](ainovel_py/entry/headless/run.py)
-
-## 12. 技术栈
-
-当前核心技术栈：
-
-- **Python 3.10+**
-- **LangGraph**：默认工作流编排后端
-- **Textual**：终端 UI
-- **OpenAI-compatible HTTP API**：LLM 接入方式
-- **本地 JSON / JSONL / Markdown 文件存储**：运行状态与内容持久化
-
-依赖定义见：
-
-- [pyproject.toml](pyproject.toml)
-
-## 13. 配置方式
-
-最小配置一般包括：
+Python Runtime 的最小配置示例：
 
 ```json
 {
   "provider": "openrouter",
   "model": "qwen3.5-flash",
-  "orchestrator": "langgraph",
   "providers": {
     "openrouter": {
       "api_key": "YOUR_API_KEY",
@@ -362,110 +261,60 @@ tool registry 在：
 }
 ```
 
-请注意：
+Java Platform 配置见：
 
-- 不要在仓库中提交真实 API key
-- 示例配置中的 key 应始终使用脱敏占位符
+- [java-platform/src/main/resources/application.yml](java-platform/src/main/resources/application.yml)
 
-示例运行方式：
+## 测试
+
+### Python Runtime
+
+关键验证：
+
+- [tests/langgraph_backend_smoke.py](tests/langgraph_backend_smoke.py)
+- [tests/langgraph_nodes_smoke.py](tests/langgraph_nodes_smoke.py)
+- [tests/langgraph_e2e_smoke.py](tests/langgraph_e2e_smoke.py)
+- [tests/langgraph_resume_smoke.py](tests/langgraph_resume_smoke.py)
+- `tests/internal_api_*`
+
+### Java Platform
 
 ```bash
-python -m ainovel_py.cli.main \
-  --config "/你的真实路径/dev_config.json"
+mvn -q -f java-platform/pom.xml test
 ```
 
-Headless 模式：
+## 当前架构现状与后续方向
 
-```bash
-python -m ainovel_py.cli.main \
-  --headless \
-  --config "/你的真实路径/dev_config.json" \
-  --prompt "写一部雨夜觉醒、阴谋、长篇网文风格的小说"
-```
+当前现状：
 
-## 14. 测试与验证
+- 前端同时连接 Java 与 Python
+- Java 承担平台层基础接口
+- Python 承担 Agent 运行时核心能力
 
-当前项目采用的是**smoke test + 场景回归验证**的思路。
+如果后续继续演进，推荐方向是：
 
-关键测试包括：
+- **Java 专注平台层能力**：用户、权限、审计、统一 API、平台数据模型、持久化治理
+- **Python 专注 Agent 能力**：写作编排、上下文管理、评审、重写、流式生成、模型适配
 
-- [tests/langgraph\_backend\_smoke.py](tests/langgraph_backend_smoke.py)\
-  验证默认 `langgraph` 和显式 `imperative` fallback
-- [tests/langgraph\_nodes\_smoke.py](tests/langgraph_nodes_smoke.py)\
-  验证关键节点路由与 action planning
-- [tests/langgraph\_e2e\_smoke.py](tests/langgraph_e2e_smoke.py)\
-  验证最小端到端章节生成
-- [tests/langgraph\_resume\_smoke.py](tests/langgraph_resume_smoke.py)\
-  验证 LangGraph resume 路径
-- [tests/resume\_recovery\_smoke.py](tests/resume_recovery_smoke.py)\
-  验证恢复提示与中断恢复逻辑
+当前 README 描述的是**现在已落地的结构**，不是未来的理想单后端形态。
 
-## 15. 为什么这样设计
+## 建议阅读顺序
 
-### 15.1 为什么不是直接单次生成整本小说
+### 先看平台边界
 
-因为长篇小说生成天然存在：
+1. [frontend-web/src/lib/api/stories.ts](frontend-web/src/lib/api/stories.ts)
+2. [frontend-web/src/lib/api/runs.ts](frontend-web/src/lib/api/runs.ts)
+3. [frontend-web/src/lib/api/workspace.ts](frontend-web/src/lib/api/workspace.ts)
+4. [java-platform/src/main/java/com/ainovel/platform/interfaces/http/StoryController.java](java-platform/src/main/java/com/ainovel/platform/interfaces/http/StoryController.java)
+5. [ainovel_py/internal_api/routes.py](ainovel_py/internal_api/routes.py)
 
-- 章节一致性
-- 人物关系持续更新
-- 世界状态演进
-- 弧/卷结构控制
-- 中途恢复需求
+### 再看 Python Runtime 内核
 
-所以必须把“写作”设计成一个可持续推进、可检查、可回退的过程。
-
-### 15.2 为什么用 file-based persistence
-
-因为在这个项目里，本地文件比内存更重要：
-
-- 可以 resume
-- 可以审查中间结果
-- 可以做 UI 回放
-- 可以把草稿、最终稿、摘要、review 拆开保存
-
-### 15.3 为什么默认改成 LangGraph
-
-因为 LangGraph 更适合当前项目已经出现的复杂分支：
-
-- review
-- rewrite / polish
-- checkpoint-aware resume
-- arc / volume / expand\_arc
-
-这些在 graph 中比在 while-loop 里更容易理解和维护。
-
-### 15.4 为什么还保留 imperative fallback
-
-因为它仍然有兼容价值：
-
-- 遇到图运行问题时可回退
-- 可用于迁移期对照
-- 降低单路径架构切换风险
-
-## 16. 当前边界与后续演进方向
-
-当前项目虽然具备 writer / editor / architect 等角色语义，但它仍更准确地属于：
-
-> **基于 LangGraph 的角色化小说写作工作流系统**
-
-而不是严格意义上的 Multi-Agent 系统。
-
-后续可能的演进方向包括：
-
-- 把角色进一步拆成真正独立的 agent
-- 引入 agent-to-agent message schema
-- 增加 agent-local memory
-- 强化 review / rewrite 的结构化决策
-- 继续收缩 imperative fallback 的重复编排逻辑
-
-***
-
-如果你第一次接触这个项目，建议从以下文件开始阅读：
-
-1. [ainovel\_py/host/host.py](ainovel_py/host/host.py)
-2. [ainovel\_py/agents/build.py](ainovel_py/agents/build.py)
-3. [ainovel\_py/agents/orchestrator/langgraph/core.py](ainovel_py/agents/orchestrator/langgraph/core.py)
-4. [ainovel\_py/agents/orchestrator/langgraph/nodes/core.py](ainovel_py/agents/orchestrator/langgraph/nodes/core.py)
-5. [ainovel\_py/tools/commit\_chapter.py](ainovel_py/tools/commit_chapter.py)
-6. [ainovel\_py/store/store.py](ainovel_py/store/store.py)
-
+1. [ainovel_py/internal_api/app.py](ainovel_py/internal_api/app.py)
+2. [ainovel_py/internal_api/service.py](ainovel_py/internal_api/service.py)
+3. [ainovel_py/host/host.py](ainovel_py/host/host.py)
+4. [ainovel_py/agents/build.py](ainovel_py/agents/build.py)
+5. [ainovel_py/agents/orchestrator/langgraph/core.py](ainovel_py/agents/orchestrator/langgraph/core.py)
+6. [ainovel_py/agents/orchestrator/langgraph/nodes/core.py](ainovel_py/agents/orchestrator/langgraph/nodes/core.py)
+7. [ainovel_py/tools/commit_chapter.py](ainovel_py/tools/commit_chapter.py)
+8. [ainovel_py/store/store.py](ainovel_py/store/store.py)

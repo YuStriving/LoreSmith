@@ -4,7 +4,7 @@ import './layout.css'
 
 export function AppShell() {
   const location = useLocation()
-  const isConsole = location.pathname === '/stories/new' || /^\/stories\/[^/]+\/workspace$/.test(location.pathname)
+  const isConsole = location.pathname === '/stories/new' || /^\/stories\/[^/]+\/(workspace|reference)$/.test(location.pathname)
 
   return (
     <div className={`app-shell ${isConsole ? 'app-shell--console' : ''}`}>

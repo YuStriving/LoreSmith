@@ -49,9 +49,9 @@
     "foreshadow_ledger": []
   },
   "activeRunId": "5aed982e-a66c-4f6a-9638-22ea925d4c88",
-  "runAfterSeq": 0,
+  "runAfterSeq": 144,
   "runSyncStatus": "running",
-  "runSyncUpdatedAt": "2026-04-24T08:08:35.236Z",
+  "runSyncUpdatedAt": "2026-05-07T03:18:54.027Z",
   "lastCompletedChapter": null,
   "activeNodeId": "chapter-11",
   "chapterTitles": {

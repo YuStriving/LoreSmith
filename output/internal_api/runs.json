@@ -184,5 +184,36 @@
       "style": "light",
       "context_window": 128000
     }
+  },
+  {
+    "run_id": "ca1955f9-58ce-4ae9-932c-870889a87644",
+    "story_id": "a1e4968d-054c-41c7-9355-90a12aa43408",
+    "output_dir": "output/workspace/a1e4968d-054c-41c7-9355-90a12aa43408",
+    "created_at": "2026-05-07T03:21:08.007652+00:00",
+    "started_at": "2026-05-07T03:21:08.007656+00:00",
+    "finished_at": "",
+    "last_error_code": "INTERNAL_ERROR",
+    "last_error_message": "'AgentRunner' object has no attribute 'backend'",
+    "state_override": "failed",
+    "last_operation": "start",
+    "cfg": {
+      "output_dir": "output/workspace/a1e4968d-054c-41c7-9355-90a12aa43408",
+      "provider": "openrouter",
+      "model": "qwen3.5-flash",
+      "providers": {
+        "openrouter": {
+          "type": "",
+          "api_key": "sk-25444e18366b4f52aca6054a7312ffc3",
+          "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "models": [
+            "qwen3.5-flash",
+            "qwen3.5-plus"
+          ]
+        }
+      },
+      "roles": {},
+      "style": "dramatic",
+      "context_window": 128000
+    }
   }
 ]

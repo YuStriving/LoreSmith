@@ -5,6 +5,7 @@ import { StoriesPage } from '../pages/StoriesPage'
 import { NewStoryPage } from '../pages/NewStoryPage'
 import { ReadingPage } from '../pages/ReadingPage'
 import { StoryWorkspacePage } from '../pages/StoryWorkspacePage'
+import { StoryReferencePage } from '../pages/StoryReferencePage'
 
 const router = createBrowserRouter([
   {
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
       { path: 'stories', element: <StoriesPage /> },
       { path: 'stories/new', element: <NewStoryPage /> },
       { path: 'stories/:storyId/workspace', element: <StoryWorkspacePage /> },
+      { path: 'stories/:storyId/reference', element: <StoryReferencePage /> },
       { path: 'runs/:runId', element: <Navigate to='/stories' replace /> },
       { path: 'read', element: <ReadingPage /> },
       { path: '*', element: <Navigate to='/' replace /> },

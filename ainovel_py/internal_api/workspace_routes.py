@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 
 from ainovel_py.internal_api.deps import get_workspace_service, require_internal_auth
 from ainovel_py.internal_api.mappers import envelope
-from ainovel_py.internal_api.response_dto import Envelope, ErrorResponse, WorkspaceReferenceSnapshotPayload
+from ainovel_py.internal_api.response_dto import Envelope, ErrorResponse, WorkspaceReferenceDetailPayload, WorkspaceReferenceSnapshotPayload
 from ainovel_py.internal_api.workspace_dto import WorkspaceIntentPayload, WorkspaceIntentRequest, WorkspaceNodeMutationRequest, WorkspaceNodeUpdateRequest, WorkspaceRunBridgeUpdateRequest, WorkspaceSnapshotPayload
 from ainovel_py.internal_api.workspace_service import WorkspaceService
 
@@ -40,6 +40,11 @@ async def workspace_reference_snapshot(story_id: str = Query(min_length=1), serv
 @router.put("/workspace/reference-snapshot", response_model=Envelope[WorkspaceReferenceSnapshotPayload], responses={401: {"model": ErrorResponse}})
 async def workspace_reference_snapshot_update(story_id: str = Query(min_length=1), payload: dict[str, object] = None, service: WorkspaceService = Depends(get_workspace_service)) -> dict[str, object]:
     return envelope(service.save_workspace_reference_snapshot(story_id, payload or {}))
+
+
+@router.get("/workspace/reference-detail", response_model=Envelope[WorkspaceReferenceDetailPayload], responses={401: {"model": ErrorResponse}})
+async def workspace_reference_detail(story_id: str = Query(min_length=1), service: WorkspaceService = Depends(get_workspace_service)) -> dict[str, object]:
+    return envelope(service.get_workspace_reference_detail(story_id))
 
 
 @router.post("/workspace/intent", response_model=Envelope[WorkspaceIntentPayload], responses={401: {"model": ErrorResponse}})

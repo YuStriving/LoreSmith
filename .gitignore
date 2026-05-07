@@ -9,6 +9,7 @@ java-platform/*.iml
 venv/
 ENV/
 env/
+.py[cod]
 
 # 缓存文件
 __pycache__/
@@ -22,6 +23,8 @@ ainovel_py.egg-info/
 .DS_Store
 .claude/
 docs/
+build/
+output/
 
 # 前端
 frontend-web/node_modules/

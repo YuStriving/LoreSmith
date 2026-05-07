@@ -126,3 +126,21 @@ class WorkspaceReferenceSnapshotPayload(BaseModel):
     timeline: list[dict] = Field(default_factory=list)
     relationship_state: list[dict] = Field(default_factory=list)
     foreshadow_ledger: list[dict] = Field(default_factory=list)
+
+
+class WorkspaceReferenceDetailPayload(BaseModel):
+    story_id: str = ""
+    title: str = ""
+    premise: str = ""
+    outline: list[dict] = Field(default_factory=list)
+    layered_outline: list[dict] = Field(default_factory=list)
+    compass: dict = Field(default_factory=dict)
+    characters: list[dict] = Field(default_factory=list)
+    character_snapshots: list[dict] = Field(default_factory=list)
+    world_rules: list[dict] = Field(default_factory=list)
+    timeline: list[dict] = Field(default_factory=list)
+    relationship_state: list[dict] = Field(default_factory=list)
+    foreshadow_ledger: list[dict] = Field(default_factory=list)
+    arc_summaries: list[dict] = Field(default_factory=list)
+    volume_summaries: list[dict] = Field(default_factory=list)
+    progress: dict = Field(default_factory=dict)

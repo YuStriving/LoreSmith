@@ -150,5 +150,18 @@
     "started_at": "2026-04-24T15:38:51.878753+00:00",
     "finished_at": "2026-04-24T15:40:26.084427+00:00",
     "error": ""
+  },
+  {
+    "task_id": "56e4919c-ad88-4413-827c-bec1f1fa355d",
+    "run_id": "ca1955f9-58ce-4ae9-932c-870889a87644",
+    "op": "start",
+    "payload": {
+      "prompt": "六界的互相争斗，主角出生在人界，逐步带领人族战胜其他界"
+    },
+    "status": "failed",
+    "created_at": "2026-05-07T03:21:08.009770+00:00",
+    "started_at": "2026-05-07T03:21:08.128880+00:00",
+    "finished_at": "2026-05-07T03:29:16.262252+00:00",
+    "error": "'AgentRunner' object has no attribute 'backend'"
   }
 ]

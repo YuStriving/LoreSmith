@@ -156,6 +156,18 @@ class WorkspaceService:
         return snapshot
 
     def get_workspace_reference_snapshot(self, story_id: str) -> dict[str, object]:
+        detail = self.get_workspace_reference_detail(story_id)
+        return {
+            "premise": detail.get("premise", ""),
+            "outline": detail.get("outline", []),
+            "characters": detail.get("characters", []),
+            "world_rules": detail.get("world_rules", []),
+            "timeline": detail.get("timeline", []),
+            "relationship_state": detail.get("relationship_state", []),
+            "foreshadow_ledger": detail.get("foreshadow_ledger", []),
+        }
+
+    def get_workspace_reference_detail(self, story_id: str) -> dict[str, object]:
         workspace_id = (story_id or "").strip()
         if not workspace_id:
             raise ApiError("INVALID_ARGUMENT", "story_id is required", 400)
@@ -165,17 +177,41 @@ class WorkspaceService:
         outline_items = store.outline.load_outline()
         if not outline_items:
             outline_items = self._outline_from_chapter_plans(store)
+        layered_outline = store.outline.load_layered_outline()
+        compass = store.outline.load_compass()
         world_rules = store.world.load_world_rules()
         if not world_rules:
             world_rules = self._world_rules_from_premise(premise)
+        progress = store.progress.load()
+        run_meta = store.run_meta.load()
+        volume_summaries = store.summaries.load_all_volume_summaries()
+        arc_summaries: list[dict[str, object]] = []
+        for volume in layered_outline:
+            summaries = store.summaries.load_arc_summaries(volume.index)
+            arc_summaries.extend(asdict(item) for item in summaries)
+        snapshots = store.world.load_latest_character_snapshots()
+        title = self._resolve_workspace_title(workspace_id, premise, run_meta.story_title if run_meta else "")
         return {
+            "story_id": workspace_id,
+            "title": title,
             "premise": premise,
             "outline": [asdict(item) for item in outline_items],
+            "layered_outline": [asdict(item) for item in layered_outline],
+            "compass": asdict(compass) if compass is not None else {},
             "characters": [asdict(item) for item in store.characters.load()],
+            "character_snapshots": [asdict(item) for item in snapshots],
             "world_rules": [asdict(item) for item in world_rules],
             "timeline": [asdict(item) for item in store.world.load_timeline()],
             "relationship_state": [asdict(item) for item in store.world.load_relationships()],
             "foreshadow_ledger": [asdict(item) for item in store.world.load_foreshadow_ledger()],
+            "arc_summaries": arc_summaries,
+            "volume_summaries": [asdict(item) for item in volume_summaries],
+            "progress": {
+                "completed_chapters": len(progress.completed_chapters) if progress else 0,
+                "current_chapter": progress.current_chapter if progress else 0,
+                "total_word_count": progress.total_word_count if progress else 0,
+                "current_volume": progress.current_volume if progress else 0,
+            },
         }
 
     def save_workspace_reference_snapshot(self, story_id: str, payload: dict[str, object]) -> dict[str, object]:

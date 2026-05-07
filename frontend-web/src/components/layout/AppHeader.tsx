@@ -22,7 +22,7 @@ const navItems = [
   {
     to: '/stories/new',
     label: '共享工作台',
-    isActive: (pathname: string) => /^\/stories\/[^/]+\/workspace$/.test(pathname),
+    isActive: (pathname: string) => /^\/stories\/[^/]+\/(workspace|reference)$/.test(pathname),
   },
   {
     to: '/read',
