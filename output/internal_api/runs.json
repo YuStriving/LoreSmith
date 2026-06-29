@@ -215,5 +215,61 @@
       "style": "dramatic",
       "context_window": 128000
     }
+  },
+  {
+    "run_id": "run_conflicts",
+    "story_id": "story_conflicts",
+    "output_dir": "output\\internal_api_conflicts",
+    "created_at": "2026-06-17T12:07:19.444987+00:00",
+    "started_at": "2026-06-17T12:07:19.444990+00:00",
+    "finished_at": "",
+    "last_error_code": "",
+    "last_error_message": "",
+    "state_override": "",
+    "last_operation": "start",
+    "cfg": {
+      "output_dir": "output\\internal_api_conflicts",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "providers": {
+        "openai": {
+          "type": "",
+          "api_key": "dummy-key",
+          "base_url": "",
+          "models": []
+        }
+      },
+      "roles": {},
+      "style": "default",
+      "context_window": 128000
+    }
+  },
+  {
+    "run_id": "run_stream_bug",
+    "story_id": "story_stream_bug",
+    "output_dir": "output/internal_api_stream_bug",
+    "created_at": "2026-05-29T09:29:03.647824+00:00",
+    "started_at": "2026-05-29T09:29:03.647827+00:00",
+    "finished_at": "",
+    "last_error_code": "",
+    "last_error_message": "",
+    "state_override": "",
+    "last_operation": "create",
+    "cfg": {
+      "output_dir": "output/internal_api_stream_bug",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "providers": {
+        "openai": {
+          "type": "",
+          "api_key": "dummy-key",
+          "base_url": "",
+          "models": []
+        }
+      },
+      "roles": {},
+      "style": "default",
+      "context_window": 128000
+    }
   }
 ]

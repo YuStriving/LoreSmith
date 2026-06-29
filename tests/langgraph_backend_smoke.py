@@ -58,13 +58,15 @@ def main() -> int:
     graph_view = runtime.graph.get_graph()
     node_ids = set(graph_view.nodes)
     required_nodes = {
-        "plan_chapter",
-        "commit_chapter",
-        "review",
-        "arc_summary",
-        "volume_summary",
-        "expand_arc",
+        "load_context",
+        "dispatch",
+        "architect_plan",
+        "writer_write",
+        "editor_commit",
+        "editor_review",
+        "architect_summary",
         "checkpoint",
+        "finish",
     }
     missing = sorted(required_nodes - node_ids)
     if missing:
