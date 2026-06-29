@@ -32,7 +32,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
-from ainovel_py.agents import CoordinatorLoop, build_coordinator_loop
+from ainovel_py.agents import OrchestratorBackend, build_coordinator_loop
 from ainovel_py.agents.llm_client import OpenAICompatClient
 from ainovel_py.agents.build import build_tool_registry
 from ainovel_py.agents.runner import AgentRunner
@@ -193,7 +193,7 @@ class Host:
         self.store = Store(cfg.output_dir)
         self.store.init()
         self.store.run_meta.init(cfg.style, cfg.provider, cfg.model)
-        self.loop: CoordinatorLoop = build_coordinator_loop(
+        self.loop: OrchestratorBackend = build_coordinator_loop(
             self.cfg,
             self.store,
             emit_event=self._emit_event,

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from langgraph.graph import END, START, StateGraph
 
-from ..nodes.helpers import _append_line
+from ..nodes.helpers import _append_line, ensure_novel_context
 from ..state import GraphState
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ def _generate_draft_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], 
     """Writer 写作技能的核心节点：生成章节正文。"""
     def _node(state: GraphState) -> GraphState:
         chapter = int(state.get("current_chapter") or 1)
-        context = state.get("context") or {}
+        context = ensure_novel_context(runtime, state)
         plan = state.get("latest_plan") or {}
         contract = (plan.get("contract") or {}) if isinstance(plan, dict) else {}
 

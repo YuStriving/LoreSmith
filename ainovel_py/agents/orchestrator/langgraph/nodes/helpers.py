@@ -94,6 +94,30 @@ def _is_rewrite_mode(progress: Any) -> bool:
     return bool(progress and progress.flow in {FlowState.REWRITING, FlowState.POLISHING} and progress.pending_rewrites)
 
 
+def ensure_novel_context(runtime: Any, state: GraphState) -> dict[str, Any]:
+    """懒加载小说上下文：有缓存直接返回，无则从 store 加载并缓存到 state["context"]。
+
+    子图按需调用，首次加载后后续子图直接复用，避免重复读取 store。
+
+    Args:
+        runtime: LangGraphRuntime 实例
+        state: 图状态字典
+
+    Returns:
+        小说上下文字典
+    """
+    cached = state.get("context")
+    if cached:
+        return cached
+    chapter = int(state.get("current_chapter") or 1)
+    context = runtime.runner.call_tool("novel_context", {"chapter": chapter}) or {}
+    if _is_rewrite_mode(runtime.store.progress.load()):
+        rewrite_agent = runtime.get_agent("rewrite")
+        context = rewrite_agent.build_rewrite_context(runtime.store.progress.load(), context)
+    state["context"] = context
+    return context
+
+
 def _resume_from_checkpoint(runtime: Any, state: GraphState, pending_checkpoint: Any, seed_text: str) -> str:
     """处理"待确认检查点"恢复场景。
 

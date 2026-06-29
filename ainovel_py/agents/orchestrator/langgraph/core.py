@@ -134,7 +134,8 @@ class LangGraphRuntime(OrchestratorBackend):
 
         主图结构（角色编排层）：
         START → load_context → dispatch → [角色子图] → collect → dispatch (循环)
-                                                          → checkpoint → finish → END
+                        ↓                           → checkpoint → finish → END
+                      finish
 
         子图结构（技能实现层）：
         - architect_plan: Architect 的规划章节技能
@@ -142,6 +143,9 @@ class LangGraphRuntime(OrchestratorBackend):
         - editor_commit: Editor 的提交章节技能
         - editor_review: Editor 的评审章节技能
         - architect_summary: Architect 的弧/卷摘要技能
+
+        上下文加载策略：懒加载。子图按需调用 ensure_novel_context() 加载上下文，
+        首次加载后缓存到 state["context"]，后续子图直接复用。
         """
         graph = StateGraph(OrchestratorState)
 

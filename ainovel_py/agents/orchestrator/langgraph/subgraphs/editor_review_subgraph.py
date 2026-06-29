@@ -7,7 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from ainovel_py.host.events import Event
 
-from ..nodes.helpers import _append_line, _enqueue_hint_actions
+from ..nodes.helpers import _append_line, _enqueue_hint_actions, ensure_novel_context
 from ..post_commit import plan_review_followup
 from ..state import GraphState
 
@@ -44,7 +44,10 @@ def build_editor_review_subgraph(runtime: "LangGraphRuntime") -> Any:
 
 
 def _generate_review_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], GraphState]:
-    """Editor 评审技能的生成评审节点。"""
+    """Editor 评审技能的生成评审节点。
+
+    通过 ensure_novel_context() 懒加载上下文，首次加载后缓存到 state["context"]。
+    """
     def _node(state: GraphState) -> GraphState:
         chapter = int(state.get("pending_review_for") or state.get("current_chapter") or 0)
         if chapter <= 0:
@@ -52,9 +55,10 @@ def _generate_review_node(runtime: "LangGraphRuntime") -> Callable[[GraphState],
             state["latest_review_payload"] = None
             return state
 
+        context = ensure_novel_context(runtime, state)
         editor = runtime.get_agent("editor")
         client = editor.build_client()
-        review_payload = editor.generate_review_payload(client, chapter)
+        review_payload = editor.generate_review_payload(client, chapter, context)
         state["latest_review_payload"] = review_payload
         _append_line(state, f"[editor] generate_review -> ch{chapter}")
         return state

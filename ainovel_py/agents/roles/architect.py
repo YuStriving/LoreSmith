@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ainovel_py.agents.llm_client import OpenAICompatClient
 from ainovel_py.agents.runner import dict_to_chapter_plan, chapter_plan_to_dict
 from ainovel_py.domain.runtime import infer_planning_tier, normalize_planning_tier
 
@@ -96,11 +95,8 @@ class ArchitectAgent(BaseAgent):
         base_plan: dict[str, Any],
         feedback: str,
     ) -> dict[str, Any] | None:
-        pc = self.cfg.providers.get(self.cfg.provider)
-        if pc is None or not pc.api_key:
-            return None
         try:
-            client = OpenAICompatClient(api_key=pc.api_key, model=self.cfg.model, base_url=pc.base_url, timeout=120.0)
+            client = self.build_client()
             pack = self.context_manager.build_writer_pack(context)
             system_prompt = "你是小说章节规划助手，只输出 JSON。请基于既有章节上下文和用户反馈，返回修订后的本章计划。"
             prompt = (

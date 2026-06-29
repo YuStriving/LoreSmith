@@ -101,8 +101,9 @@ class EditorAgent(BaseAgent):
         data["chapter"] = chapter
         return data
 
-    def _generate_review_payload(self, client: OpenAICompatClient, chapter: int) -> dict[str, Any]:
-        context = self.runner.call_tool("novel_context", {"chapter": chapter})
+    def _generate_review_payload(self, client: OpenAICompatClient, chapter: int, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        if context is None:
+            context = self.runner.call_tool("novel_context", {"chapter": chapter})
         draft_read = self.runner.call_tool("read_chapter", {"chapter": chapter, "source": "draft"})
         draft = str(draft_read.get("content", "") or "")
         prompt = f"""
@@ -156,5 +157,5 @@ chapter, scope, dimensions, issues, contract_status, contract_misses, contract_n
         data.setdefault("scope", "chapter")
         return data
 
-    def generate_review_payload(self, client: OpenAICompatClient, chapter: int) -> dict[str, Any]:
-        return self._generate_review_payload(client, chapter)
+    def generate_review_payload(self, client: OpenAICompatClient, chapter: int, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._generate_review_payload(client, chapter, context)

@@ -7,7 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from ainovel_py.host.events import Event
 
-from ..nodes.helpers import _append_line, _is_rewrite_mode
+from ..nodes.helpers import _append_line, _is_rewrite_mode, ensure_novel_context
 from ..state import GraphState
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ def _build_plan_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], Grap
     """
     def _node(state: GraphState) -> GraphState:
         chapter = int(state.get("current_chapter") or 1)
-        context = state.get("context") or {}
+        context = ensure_novel_context(runtime, state)
         seed_text = str(state.get("seed_text") or "")
         feedback = str(state.get("plan_feedback") or "")
         progress = runtime.store.progress.load()

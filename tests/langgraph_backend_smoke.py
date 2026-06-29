@@ -43,15 +43,13 @@ def main() -> int:
         raise
 
     loop = build_coordinator_loop(cfg_default, store, lambda event: None, lambda channel, delta: None)
-    if not isinstance(loop.backend, LangGraphRuntime):
+    if not isinstance(loop, LangGraphRuntime):
         raise RuntimeError("default backend should be langgraph")
 
     cfg_langgraph = _cfg()
-    loop = build_coordinator_loop(cfg_langgraph, store, lambda event: None, lambda channel, delta: None)
-    if not isinstance(loop.backend, LangGraphRuntime):
+    runtime = build_coordinator_loop(cfg_langgraph, store, lambda event: None, lambda channel, delta: None)
+    if not isinstance(runtime, LangGraphRuntime):
         raise RuntimeError("langgraph backend not selected")
-
-    runtime = LangGraphRuntime(cfg_langgraph, loop.backend.runner, store, lambda event: None, lambda channel, delta: None)
     compiled = runtime._build_graph()
     if compiled is None:
         raise RuntimeError("langgraph graph did not compile")

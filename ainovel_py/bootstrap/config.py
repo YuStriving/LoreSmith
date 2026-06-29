@@ -19,7 +19,7 @@ KNOWN_PROVIDER_TYPES = {
 }
 """已知的 LLM 服务提供商类型"""
 
-KNOWN_ROLES = {"coordinator", "architect", "writer", "editor"}
+KNOWN_ROLES = {"coordinator", "architect", "writer", "editor", "rewrite", "supervisor"}
 """系统支持的角色类型"""
 
 
