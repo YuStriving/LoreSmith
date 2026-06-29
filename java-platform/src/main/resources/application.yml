@@ -3,10 +3,10 @@ server:
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/ainovel}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/ainovel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:ainovel}
     password: ${SPRING_DATASOURCE_PASSWORD:ainovel}
-    driver-class-name: org.postgresql.Driver
+    driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:
     enabled: true
     locations: classpath:db/migration
