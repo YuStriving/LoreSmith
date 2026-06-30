@@ -11,6 +11,7 @@ from .base import BaseAgent
 
 class ArchitectAgent(BaseAgent):
     name = "architect"
+    model_capability = "planner"     # 阶段 D：按 capability 选模型
 
     def system_prompt(self) -> str:
         return self.assets.prompts.get("architect") or "你是小说章节规划助手，只输出 JSON。"

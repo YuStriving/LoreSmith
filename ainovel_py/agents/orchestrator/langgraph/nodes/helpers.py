@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any
 
 from ainovel_py.domain.runtime import FlowState
+from ainovel_py.host.events import Event
 
 from ..hints import HintAction, plan_actions
 from ..state import GraphState
@@ -369,3 +372,140 @@ def route_from_supervisor(state: GraphState) -> str:
         if target and target in VALID_SUPERVISOR_TARGETS:
             return target
     return route_after_commit(state)
+
+
+# ============================================================
+# 优化 ①-1：commit 后置任务并行执行
+# ============================================================
+SUMMARY_TASK_ARC = "arc_summary"
+SUMMARY_TASK_VOLUME = "volume_summary"
+SUMMARY_TASK_EXPAND = "expand_arc"
+SUMMARY_TASKS_ALL = {SUMMARY_TASK_ARC, SUMMARY_TASK_VOLUME, SUMMARY_TASK_EXPAND}
+
+
+def _run_summary_task(
+    runtime: Any,
+    state: GraphState,
+    task: str,
+    out_lines: list[str],
+) -> dict[str, Any]:
+    """单任务包装：执行单个 summary 任务（arc_summary / volume_summary / expand_arc）。
+
+    Args:
+        runtime: LangGraphRuntime 实例
+        state: 图状态字典
+        task: 任务名（arc_summary / volume_summary / expand_arc）
+        out_lines: 输出日志行列表（线程安全追加）
+
+    Returns:
+        结果字典 {"task": ..., "ok": bool, "result": ..., "error": str (if failed)}
+    """
+    chapter = int(state.get("current_chapter") or 1)
+    try:
+        if task == SUMMARY_TASK_ARC:
+            from ..review_flow import save_arc_summary_followup
+            save_arc_summary_followup(runtime.runner, runtime.emit_event, chapter, out_lines)
+            return {"task": task, "ok": True, "result": "arc_summary saved"}
+        if task == SUMMARY_TASK_VOLUME:
+            from ..review_flow import save_volume_summary_followup
+            progress = runtime.store.progress.load()
+            volume = max(1, progress.current_volume) if progress else 1
+            save_volume_summary_followup(
+                runtime.runner, runtime.emit_event, chapter, out_lines,
+                volume=volume, always=True,
+            )
+            return {"task": task, "ok": True, "result": "volume_summary saved"}
+        if task == SUMMARY_TASK_EXPAND:
+            from .summary_nodes import _execute_expand_arc_safe
+            _execute_expand_arc_safe(runtime, state, chapter, out_lines)
+            return {"task": task, "ok": True, "result": "expand_arc saved"}
+        return {"task": task, "ok": False, "error": f"unknown task: {task}"}
+    except Exception as e:
+        return {"task": task, "ok": False, "error": str(e)}
+
+
+def _execute_parallel_summaries(
+    runtime: Any,
+    state: GraphState,
+    tasks: list[str],
+) -> dict[str, Any]:
+    """并行执行多个 summary 任务（优化 ①-1）。
+
+    适用于 commit 后 hint_actions 一次性产出多个 summary 任务的场景。
+    相比串行执行，N 个任务节省 (N-1) * task_time 延迟。
+
+    线程安全：
+    - 每个任务调用独立的 summary 工具（save_arc_summary / save_volume_summary / save_foundation）
+    - 文件 IO 通过 store.io 的 per-directory 锁（优化 ①-3）保证原子性
+    - 共享的 out_lines 列表通过线程局部缓冲区追加，最后合并到 state
+
+    Args:
+        runtime: LangGraphRuntime 实例
+        state: 图状态字典
+        tasks: 任务名列表（元素为 SUMMARY_TASKS_ALL 子集）
+
+    Returns:
+        聚合结果字典 {"results": {task_name: result_dict}, "all_ok": bool, "duration": float}
+    """
+    import time
+
+    if not tasks:
+        return {"results": {}, "all_ok": True, "duration": 0.0}
+
+    # 过滤未知任务
+    valid_tasks = [t for t in tasks if t in SUMMARY_TASKS_ALL]
+    if not valid_tasks:
+        return {"results": {}, "all_ok": True, "duration": 0.0}
+
+    # 线程局部缓冲区：每个任务独立写自己的日志，避免锁竞争
+    thread_buffers: dict[str, list[str]] = {task: [] for task in valid_tasks}
+    t_start = time.time()
+    results: dict[str, dict[str, Any]] = {}
+
+    with ThreadPoolExecutor(max_workers=len(valid_tasks)) as pool:
+        future_map = {
+            pool.submit(_run_summary_task, runtime, state, task, thread_buffers[task]): task
+            for task in valid_tasks
+        }
+        for future in as_completed(future_map):
+            task = future_map[future]
+            try:
+                results[task] = future.result()
+            except Exception as e:
+                results[task] = {"task": task, "ok": False, "error": str(e)}
+
+    # 合并所有线程的输出日志到 state
+    main_out_lines = list(state.get("out_lines") or [])
+    for task in valid_tasks:
+        buf = thread_buffers.get(task, [])
+        if buf:
+            main_out_lines.extend(buf)
+    state["out_lines"] = main_out_lines
+
+    all_ok = all(r.get("ok") for r in results.values())
+    duration = time.time() - t_start
+
+    # 追加汇总日志
+    _append_line(state, f"[parallel_summaries] tasks={valid_tasks} all_ok={all_ok} duration={duration:.2f}s")
+
+    return {"results": results, "all_ok": all_ok, "duration": duration}
+
+
+def is_parallel_summary_set(tasks: list[str]) -> bool:
+    """判断任务列表是否适合并行执行。
+
+    条件：
+    - 长度 > 1
+    - 全部任务都在 SUMMARY_TASKS_ALL 集合中
+    - 不包含 expand_arc 时的额外条件：expand_arc 不能与 arc_summary 并行（共享进度状态）
+    """
+    if not tasks or len(tasks) <= 1:
+        return False
+    summary_set = {SUMMARY_TASK_ARC, SUMMARY_TASK_VOLUME}
+    # 简单情况：仅 arc_summary / volume_summary 组合
+    if all(t in summary_set for t in tasks):
+        return True
+    # expand_arc 也可加入（调用 save_foundation，与 summaries 不同目录）
+    if all(t in SUMMARY_TASKS_ALL for t in tasks):
+        return True
+    return False

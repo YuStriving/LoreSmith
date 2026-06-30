@@ -9,6 +9,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# 确保 ainovel_py 包可被找到（与 scripts/ 下其他测试脚本保持一致）
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 
 def test_imports() -> bool:
     """测试所有关键模块是否能正常导入"""

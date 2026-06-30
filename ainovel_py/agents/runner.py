@@ -5,10 +5,10 @@ from datetime import datetime
 import json
 from typing import Any, Callable
 
-from ainovel_py.agents.hints import has_placeholder_action
-from ainovel_py.agents.longform import run_longform_hint_actions
-from ainovel_py.agents.post_commit import plan_post_commit, plan_review_followup
-from ainovel_py.agents.review_flow import save_arc_summary_followup, save_volume_summary_followup
+from ainovel_py.agents.orchestrator.langgraph.hints import has_placeholder_action
+from ainovel_py.agents.orchestrator.langgraph.longform import run_longform_hint_actions
+from ainovel_py.agents.orchestrator.langgraph.post_commit import plan_post_commit, plan_review_followup
+from ainovel_py.agents.orchestrator.langgraph.review_flow import save_arc_summary_followup, save_volume_summary_followup
 from ainovel_py.domain.runtime import FlowState, infer_planning_tier, normalize_planning_tier
 
 from ainovel_py.agents.context_manager import ContextManager
@@ -561,58 +561,14 @@ def _run_write_commit_cycle(
 
 
 def _extract_commit_metadata(client: OpenAICompatClient, chapter: int, draft: str) -> dict[str, Any]:
-    prompt = f"""
-请从下面的第{chapter}章正文中提取结构化信息，并严格输出 JSON 对象（不要输出 Markdown、不要解释）。
-字段要求：
-- summary: 字符串
-- characters: 字符串数组
-- key_events: 字符串数组
-- timeline_events: 对象数组，每项 {{"time": 字符串, "event": 字符串, "characters": 字符串数组}}
-- foreshadow_updates: 对象数组，每项 {{"id": 字符串, "action": "plant"|"advance"|"resolve", "description": 字符串}}
-  - action=plant 时 description 必填，id 必须稳定可复用（如 fs_clue_01）
-- relationship_changes: 对象数组，每项 {{"character_a": 字符串, "character_b": 字符串, "relation": 字符串, "chapter": 数字}}
-  - character_a / character_b / relation 都不能为空
-- state_changes: 对象数组，每项 {{"entity": 字符串, "field": 字符串, "old_value": 字符串, "new_value": 字符串, "reason": 字符串, "chapter": 数字}}
-- hook_type: 字符串
-- dominant_strand: 字符串
-- emotional_landing: 字符串，本章结束时读者停留的情绪落点，例如“紧张中带着困惑”
-- narrative_tone: 字符串，本章主导叙事语调，例如“压抑、克制、暗流涌动”
-- sensory_anchor: 字符串，本章最有记忆感的一个感官细节，例如“雨水顺着门缝渗进来”
+    """提取 commit 元数据（优化 ②：默认走 4 路并行 LLM，失败 fallback 串行版）。
 
-如果某项不存在请返回空数组，不要伪造空对象。
+    与 [metadata_extractor.extract_commit_metadata](file:///c:/Users/17924/Desktop/1/学习资料/javaNote/八股/小说多agent%20项目/LoreSmith/ainovel_py/agents/metadata_extractor.py) 同义。
+    保留本函数以兼容旧的直接调用点。
+    """
+    from ainovel_py.agents.metadata_extractor import extract_commit_metadata
 
-正文：
-{draft}
-""".strip()
-    raw = client.complete("你是小说信息抽取助手，只输出 JSON。\n" + (load_bundle("default").references.get("consistency") or ""), prompt, temperature=0.2)
-    import json
-    try:
-        data = json.loads(raw)
-    except Exception:
-        summary_fallback = client.complete(
-            "你是摘要助手。",
-            f"请用一到两句话总结第{chapter}章的关键推进、冲突变化和章末悬念，控制在80字以内。\n\n{draft}",
-            temperature=0.3,
-        )
-        data = {
-            "summary": summary_fallback,
-            "characters": ["主角"],
-            "key_events": [f"第{chapter}章推进"],
-            "timeline_events": [],
-            "foreshadow_updates": [],
-            "relationship_changes": [],
-            "state_changes": [],
-            "hook_type": "mystery",
-            "dominant_strand": "quest",
-            "emotional_landing": "",
-            "narrative_tone": "",
-            "sensory_anchor": "",
-        }
-    data.setdefault("emotional_landing", "")
-    data.setdefault("narrative_tone", "")
-    data.setdefault("sensory_anchor", "")
-    data["chapter"] = chapter
-    return data
+    return extract_commit_metadata(client, chapter, draft)
 
 
 def _generate_review_payload(client: OpenAICompatClient, runner: AgentRunner, chapter: int) -> dict[str, Any]:
@@ -710,3 +666,8 @@ class CoordinatorLoop:
 
     def wait_idle(self) -> None:
         self.backend.wait_idle()
+
+
+# 公开别名：architect.py 等外部模块需要调用
+dict_to_chapter_plan = LLMCoordinatorBackend._dict_to_chapter_plan
+chapter_plan_to_dict = LLMCoordinatorBackend._chapter_plan_to_dict

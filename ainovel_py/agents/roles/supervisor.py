@@ -19,6 +19,7 @@ class SupervisorDecision:
 
 class SupervisorAgent(BaseAgent):
     name = "supervisor"
+    model_capability = "router"      # 阶段 D：按 capability 选模型（轻量路由模型）
 
     def system_prompt(self) -> str:
         return (

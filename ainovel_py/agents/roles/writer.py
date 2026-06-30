@@ -11,6 +11,7 @@ from .base import BaseAgent
 
 class WriterAgent(BaseAgent):
     name = "writer"
+    model_capability = "longform"    # 阶段 D：按 capability 选模型
 
     def system_prompt(self) -> str:
         return self.assets.prompts.get("writer") or (

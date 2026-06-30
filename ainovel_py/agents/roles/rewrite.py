@@ -10,6 +10,7 @@ from .base import BaseAgent
 
 class RewriteAgent(BaseAgent):
     name = "rewrite"
+    model_capability = "longform"    # 阶段 D：按 capability 选模型（与 writer 一致）
 
     def system_prompt(self) -> str:
         return self.assets.prompts.get("editor") or "你是小说编辑助手，负责根据评审意见制定重写方案。"

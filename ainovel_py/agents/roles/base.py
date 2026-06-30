@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from ainovel_py.agents.context_manager import ContextManager
 from ainovel_py.agents.llm_client import OpenAICompatClient
+from ainovel_py.agents.model_registry import ModelRegistry, build_default_model_registry
 from ainovel_py.agents.runner import AgentRunner
 from ainovel_py.assets import AssetBundle
 from ainovel_py.bootstrap.config import Config
@@ -13,6 +14,7 @@ from ainovel_py.store.store import Store
 
 class BaseAgent(ABC):
     name: str = ""
+    model_capability: str = "default"     # 阶段 D：子类按需覆盖（"planner"/"longform"/"review"/"router"）
 
     def __init__(
         self,
@@ -30,6 +32,8 @@ class BaseAgent(ABC):
         self.emit_event = emit_event
         self.emit_stream = emit_stream
         self.context_manager = ContextManager(context_window=cfg.context_window)
+        # 阶段 D：注入 ModelRegistry（从 cfg.capability_models 构造）
+        self.model_registry: ModelRegistry = build_default_model_registry(cfg)
 
     @abstractmethod
     def system_prompt(self) -> str: ...
@@ -37,15 +41,19 @@ class BaseAgent(ABC):
     @abstractmethod
     def execute(self, **kwargs) -> dict[str, Any]: ...
 
-    def build_client(self) -> OpenAICompatClient:
-        # 优先查找角色专属配置（cfg.roles[name]），无则回退全局默认
-        role_cfg = self.cfg.roles.get(self.name)
-        if role_cfg and role_cfg.provider and role_cfg.model:
-            provider_name = role_cfg.provider
-            model_name = role_cfg.model
-        else:
-            provider_name = self.cfg.provider
-            model_name = self.cfg.model
+    def build_client(self, capability: str | None = None) -> OpenAICompatClient:
+        """阶段 D：按 capability 标签动态选模型，未指定 capability 时取 self.model_capability。
+
+        行为约定：
+        - capability=None → 使用 self.model_capability
+        - capability="xxx" → 优先匹配 capability_models["xxx"]，未命中 fallback 到 "default"
+        - cfg.capability_models 未配置时，所有 capability 走 default = (cfg.provider, cfg.model)
+        - 与旧版完全兼容：默认 BaseAgent.model_capability = "default"，行为零变化
+        """
+        cap = capability or self.model_capability
+        spec = self.model_registry.get(cap)
+        provider_name = spec.provider
+        model_name = spec.model
 
         pc = self.cfg.providers.get(provider_name)
         if pc is None or not pc.api_key:

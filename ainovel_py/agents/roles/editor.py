@@ -13,6 +13,7 @@ from .base import BaseAgent
 
 class EditorAgent(BaseAgent):
     name = "editor"
+    model_capability = "review"      # 阶段 D：按 capability 选模型（editor_commit / editor_review 共享实例）
 
     def system_prompt(self) -> str:
         return self.assets.prompts.get("editor") or "你是严格的小说编辑评审助手，只输出 JSON。"

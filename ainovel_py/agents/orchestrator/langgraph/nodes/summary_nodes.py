@@ -88,38 +88,55 @@ def expand_arc_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], Graph
         节点函数，调用 save_foundation 后 pop pending_actions
     """
     def _node(state: GraphState) -> GraphState:
-        chapter = int(state.get("current_chapter") or 1)
-        client = runtime.build_client()
-        progress = runtime.store.progress.load()
-        architect = runtime.get_agent("architect")
-        planning_tier = architect.effective_planning_tier()
-        foundation_type = "append_volume"
-        payload = None
-        if progress and progress.layered:
-            volumes = runtime.store.outline.load_layered_outline()
-            current_volume = max(1, progress.current_volume or 1)
-            current_arc = max(1, progress.current_arc or 1)
-            target_arc = current_arc + 1
-            has_target_arc = False
-            for vol in volumes:
-                if vol.index == current_volume:
-                    has_target_arc = any(arc.index == target_arc for arc in vol.arcs)
-                    break
-            if has_target_arc:
-                foundation_type = "expand_arc"
-                payload = generate_longform_outline_payload(client, runtime.assets, planning_tier, chapter, "expand_arc")
-        if payload is None:
-            payload = generate_longform_outline_payload(client, runtime.assets, planning_tier, chapter, "append_volume")
-        runtime.emit_event(Event(time=datetime.now(), category="TOOL", summary=f"调用 save_foundation {foundation_type} (ch{chapter})", level="info"))
-        if foundation_type == "expand_arc":
-            runtime.runner.call_tool(
-                "save_foundation",
-                {"type": "expand_arc", "volume": progress.current_volume if progress else 1, "arc": (progress.current_arc or 1) + 1 if progress else 2, "content": payload.get("chapters", [])},
-            )
-        else:
-            runtime.runner.call_tool("save_foundation", {"type": "append_volume", "content": payload})
-        _append_line(state, f"[tool] save_foundation -> {foundation_type}")
+        _execute_expand_arc_safe(runtime, state)
         _pop_pending_action(state)
         return state
 
     return _node
+
+
+def _execute_expand_arc_safe(
+    runtime: "LangGraphRuntime",
+    state: GraphState,
+    out_lines: list[str] | None = None,
+) -> None:
+    """expand_arc 任务的安全执行函数（优化 ①-1：供 _run_summary_task 在线程中调用）。
+
+    与 expand_arc_node 的内部逻辑一致，但接受外部 out_lines 列表以避免与主流程冲突。
+    若 out_lines 为 None，则将日志直接追加到 state["out_lines"]。
+    """
+    chapter = int(state.get("current_chapter") or 1)
+    client = runtime.build_client()
+    progress = runtime.store.progress.load()
+    architect = runtime.get_agent("architect")
+    planning_tier = architect.effective_planning_tier()
+    foundation_type = "append_volume"
+    payload = None
+    if progress and progress.layered:
+        volumes = runtime.store.outline.load_layered_outline()
+        current_volume = max(1, progress.current_volume or 1)
+        current_arc = max(1, progress.current_arc or 1)
+        target_arc = current_arc + 1
+        has_target_arc = False
+        for vol in volumes:
+            if vol.index == current_volume:
+                has_target_arc = any(arc.index == target_arc for arc in vol.arcs)
+                break
+        if has_target_arc:
+            foundation_type = "expand_arc"
+            payload = generate_longform_outline_payload(client, runtime.assets, planning_tier, chapter, "expand_arc")
+    if payload is None:
+        payload = generate_longform_outline_payload(client, runtime.assets, planning_tier, chapter, "append_volume")
+    runtime.emit_event(Event(time=datetime.now(), category="TOOL", summary=f"调用 save_foundation {foundation_type} (ch{chapter})", level="info"))
+    if foundation_type == "expand_arc":
+        runtime.runner.call_tool(
+            "save_foundation",
+            {"type": "expand_arc", "volume": progress.current_volume if progress else 1, "arc": (progress.current_arc or 1) + 1 if progress else 2, "content": payload.get("chapters", [])},
+        )
+    else:
+        runtime.runner.call_tool("save_foundation", {"type": "append_volume", "content": payload})
+    log_line = f"[tool] save_foundation -> {foundation_type}"
+    if out_lines is not None:
+        out_lines.append(log_line)
+    else:
+        _append_line(state, log_line)

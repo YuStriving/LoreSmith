@@ -87,6 +87,10 @@ class Config:
     roles: dict[str, RoleConfig] = field(default_factory=dict)          # 角色配置字典
     style: str = "default"                         # 写作风格
     context_window: int = 128000                   # 上下文窗口大小（token）
+    capability_models: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # 阶段 D：按能力标签选模型。
+    # 例：{"planner": ("openai", "gpt-4o-mini"), "longform": ("deepseek", "deepseek-chat")}
+    # 未配置时所有 capability 走 default（= (cfg.provider, cfg.model)），行为与现状一致。
 
     def fill_defaults(self) -> None:
         """填充默认值"""
