@@ -155,9 +155,13 @@ def get_runtime_cache(runtime: Any) -> PrefetchPlanCache:
     - writer_subgraph 和 architect_subgraph 都要访问
     - runtime 是 LangGraphRuntime 实例，跨节点共享
     - 单例保证后台线程和主线程看到的是同一个缓存
+
+    防御 MagicMock 污染：当 runtime 是 MagicMock 时，第一次 getattr 会返回
+    Mock 自身而非 None，会污染后续所有调用。因此增加 isinstance 校验，
+    不合法的 cache 一律重建。
     """
     cache = getattr(runtime, RUNTIME_CACHE_ATTR, None)
-    if cache is None:
+    if not isinstance(cache, PrefetchPlanCache):
         # 优先从 cfg 读 io_path（如果以后要落盘）；当前默认纯内存
         io_path = None
         try:

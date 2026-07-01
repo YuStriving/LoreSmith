@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import time
+import urllib.error
 from datetime import datetime
 from typing import Any
 
@@ -11,7 +14,58 @@ from ainovel_py.host.events import Event
 from .base import BaseAgent
 
 
+os.environ.setdefault("AINOVEL_HTTP_TIMEOUT", "30")
+
+
+_FALLBACK_DIMENSION_SCORES: list[dict[str, Any]] = [
+    {"dimension": "consistency", "score": 85, "verdict": "pass", "comment": "设定一致"},
+    {"dimension": "character", "score": 82, "verdict": "pass", "comment": "角色动机成立"},
+    {"dimension": "pacing", "score": 78, "verdict": "warning", "comment": "中段可压缩"},
+    {"dimension": "continuity", "score": 86, "verdict": "pass", "comment": "连续性良好"},
+    {"dimension": "foreshadow", "score": 80, "verdict": "pass", "comment": "伏笔明确"},
+    {"dimension": "hook", "score": 83, "verdict": "pass", "comment": "钩子有效"},
+    {"dimension": "aesthetic", "score": 81, "verdict": "pass", "comment": "语言风格稳定"},
+]
+
+
+def _call_with_retry(
+    client: OpenAICompatClient,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    max_attempts: int = 2,
+) -> str:
+    """
+
+    捕获可重试错误：超时、网络中断、5xx；其他异常（如 JSON 解析失败）直接抛出。
+    重试间隔 1s（指数退避起点）。
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return client.complete(system_prompt, user_prompt, temperature)
+        except (urllib.error.URLError, TimeoutError, RuntimeError) as exc:
+            last_exc = exc
+            if attempt + 1 < max_attempts:
+                time.sleep(1.0)
+    assert last_exc is not None
+    raise last_exc
+
+
 class EditorAgent(BaseAgent):
+    """小说编辑评审 Agent。
+
+    职责：
+    - execute(chapter) → LLM 评审 + save_review 落盘
+    - extract_metadata(chapter, draft) → LLM 抽取结构化 metadata（与 metadata_extractor 协作）
+    - run_write_commit_cycle(...) → 写稿 → 一致性检查 → 提交三步
+
+    防御策略：
+    - LLM 返回非 JSON 时使用 is_fallback 标记 + emit_event WARN，调用方可感知降级
+    - LLM 调用统一 30s timeout + 1 次重试（_call_with_retry）
+    - chapter 字段 setdefault 不覆盖 LLM 返回值
+    """
+
     name = "editor"
     model_capability = "review"      # 阶段 D：按 capability 选模型（editor_commit / editor_review 共享实例）
 
@@ -79,16 +133,41 @@ class EditorAgent(BaseAgent):
 正文：
 {draft}
 """.strip()
-        raw = client.complete("你是小说信息抽取助手，只输出 JSON。\n" + (load_bundle("default").references.get("consistency") or ""), prompt, temperature=0.2)
+        raw = _call_with_retry(
+            client,
+            "你是小说信息抽取助手，只输出 JSON。\n" + (load_bundle("default").references.get("consistency") or ""),
+            prompt,
+            temperature=0.2,
+        )
         try:
             data = json.loads(raw)
-        except Exception:
-            summary_fallback = client.complete(
-                "你是摘要助手。",
-                f"请用一到两句话总结第{chapter}章的关键推进、冲突变化和章末悬念，控制在80字以内。\n\n{draft}",
-                temperature=0.3,
-            )
+            data.setdefault("chapter", chapter)
+            data["is_fallback"] = False
+        except Exception as exc:
+            # P1 修复：fallback 时 emit_event WARN，调用方通过 is_fallback 标记感知降级
+            self.emit_event(Event(
+                time=datetime.now(),
+                category="AGENT",
+                summary=f"EditorAgent: ch{chapter} metadata JSON 解析失败，使用兜底。原因: {type(exc).__name__}: {exc}",
+                level="warn",
+            ))
+            try:
+                summary_fallback = _call_with_retry(
+                    client,
+                    "你是摘要助手。",
+                    f"请用一到两句话总结第{chapter}章的关键推进、冲突变化和章末悬念，控制在80字以内。\n\n{draft}",
+                    temperature=0.3,
+                )
+            except Exception as exc2:
+                self.emit_event(Event(
+                    time=datetime.now(),
+                    category="AGENT",
+                    summary=f"EditorAgent: ch{chapter} summary 二次 LLM 也失败: {type(exc2).__name__}: {exc2}",
+                    level="warn",
+                ))
+                summary_fallback = ""
             data = {
+                "chapter": chapter,
                 "summary": summary_fallback,
                 "characters": ["主角"],
                 "key_events": [f"第{chapter}章推进"],
@@ -98,8 +177,9 @@ class EditorAgent(BaseAgent):
                 "state_changes": [],
                 "hook_type": "mystery",
                 "dominant_strand": "quest",
+                "is_fallback": True,
+                "_fallback_reason": f"{type(exc).__name__}: {exc}",
             }
-        data["chapter"] = chapter
         return data
 
     def _generate_review_payload(self, client: OpenAICompatClient, chapter: int, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -122,22 +202,29 @@ chapter, scope, dimensions, issues, contract_status, contract_misses, contract_n
 [章节上下文]
 {context}
 """.strip()
-        raw = client.complete((load_bundle("default").prompts.get("editor") or "你是严格的小说编辑评审助手，只输出 JSON。"), prompt, temperature=0.2)
+        raw = _call_with_retry(
+            client,
+            (load_bundle("default").prompts.get("editor") or "你是严格的小说编辑评审助手，只输出 JSON。"),
+            prompt,
+            temperature=0.2,
+        )
         try:
             data = json.loads(raw)
-        except Exception:
+            data.setdefault("chapter", chapter)
+            data.setdefault("scope", "chapter")
+            data["is_fallback"] = False
+        except Exception as exc:
+            # P1 修复：评审 fallback 同样 emit_event WARN
+            self.emit_event(Event(
+                time=datetime.now(),
+                category="AGENT",
+                summary=f"EditorAgent: ch{chapter} review JSON 解析失败，使用兜底 accept。原因: {type(exc).__name__}: {exc}",
+                level="warn",
+            ))
             data = {
                 "chapter": chapter,
                 "scope": "chapter",
-                "dimensions": [
-                    {"dimension": "consistency", "score": 85, "verdict": "pass", "comment": "设定一致"},
-                    {"dimension": "character", "score": 82, "verdict": "pass", "comment": "角色动机成立"},
-                    {"dimension": "pacing", "score": 78, "verdict": "warning", "comment": "中段可压缩"},
-                    {"dimension": "continuity", "score": 86, "verdict": "pass", "comment": "连续性良好"},
-                    {"dimension": "foreshadow", "score": 80, "verdict": "pass", "comment": "伏笔明确"},
-                    {"dimension": "hook", "score": 83, "verdict": "pass", "comment": "钩子有效"},
-                    {"dimension": "aesthetic", "score": 81, "verdict": "pass", "comment": "语言风格稳定"},
-                ],
+                "dimensions": [dict(d) for d in _FALLBACK_DIMENSION_SCORES],
                 "issues": [
                     {
                         "type": "pacing",
@@ -149,13 +236,13 @@ chapter, scope, dimensions, issues, contract_status, contract_misses, contract_n
                 ],
                 "contract_status": "met",
                 "contract_misses": [],
-                "contract_notes": "核心契约已满足",
+                "contract_notes": "核心契约已满足（兜底）",
                 "verdict": "accept",
-                "summary": "整体通过，可继续下一章",
+                "summary": "整体通过，可继续下一章（兜底）",
                 "affected_chapters": [],
+                "is_fallback": True,
+                "_fallback_reason": f"{type(exc).__name__}: {exc}",
             }
-        data["chapter"] = chapter
-        data.setdefault("scope", "chapter")
         return data
 
     def generate_review_payload(self, client: OpenAICompatClient, chapter: int, context: dict[str, Any] | None = None) -> dict[str, Any]:

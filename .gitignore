@@ -56,6 +56,9 @@ repo-source-manifest.json
 process_doc.py
 read_doc.py
 
+# 代码评审输出
+review/
+scripts/
 # 文档和构建输出
 docs/
 build/
