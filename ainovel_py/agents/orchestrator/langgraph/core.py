@@ -333,6 +333,55 @@ class LangGraphRuntime(OrchestratorBackend):
 # 主图节点实现
 # ============================================================
 
+# 主图全局迭代上限（防死循环安全网）
+MAX_GRAPH_ITERATIONS = 30
+
+# 连续无章节进展的硬性兜底（spec: langgraph-no-infinite-loop）
+# 如果连续 N 轮主图迭代没有任何章节完成（completed_chapters 数量未变），
+# 强制 finish 并 emit task_stalled 事件，供前端接管。
+MAX_CONSECUTIVE_IDLE_ROUNDS = 3
+
+
+def _check_task_completed(runtime: "LangGraphRuntime", state: OrchestratorState) -> bool:
+    """通过进度状态判断当前创作需求是否已完成。
+
+    判断逻辑（任一满足即视为完成）：
+    1. 所有章节已写完（progress.completed_chapters 覆盖 total_chapters）
+    2. 无进度数据且迭代超过 3 次（异常状态，安全退出）
+    3. runtime 已被外部中止
+    """
+    if runtime.is_aborted:
+        return True
+    progress = runtime.store.progress.load()
+    if progress and progress.total_chapters > 0:
+        completed = set(progress.completed_chapters) if progress.completed_chapters else set()
+        if len(completed) >= progress.total_chapters:
+            return True
+    iteration = int(state.get("_graph_iteration") or 0)
+    if not progress and iteration > 3:
+        return True
+    return False
+
+
+def _check_idle_stall(runtime: "LangGraphRuntime", state: OrchestratorState) -> bool:
+    """检查是否连续 N 轮无进展（spec: langgraph-no-infinite-loop 业务层兜底）。
+
+    返回 True 表示已触发 idle stall，需要强制 finish。
+    """
+    progress = runtime.store.progress.load()
+    current_completed = max(progress.completed_chapters) if (progress and progress.completed_chapters) else 0
+    last_completed = int(state.get("_last_completed_count") or 0)
+    if current_completed > last_completed:
+        # 有进展 → 重置 idle_rounds
+        state["_last_completed_count"] = current_completed
+        state["_idle_rounds"] = 0
+        return False
+    # 无进展 → 累加 idle_rounds
+    idle_rounds = int(state.get("_idle_rounds") or 0) + 1
+    state["_idle_rounds"] = idle_rounds
+    return idle_rounds >= MAX_CONSECUTIVE_IDLE_ROUNDS
+
+
 def _dispatch_node(runtime: "LangGraphRuntime") -> Callable[[OrchestratorState], OrchestratorState]:
     """主 Agent 的 dispatch 节点：分析状态，决定任务分配给哪个角色（阶段 C：supervisor 短路）。
 
@@ -340,8 +389,60 @@ def _dispatch_node(runtime: "LangGraphRuntime") -> Callable[[OrchestratorState],
     - 如果上一轮 supervisor 已产生 supervisor_decision（通过 _route_from_supervisor 映射到下一个目标 agent），
       则 dispatch 不再调 LLM，直接消费 supervisor_decision。
     - 否则（首次启动 / 流程入口 / supervisor 决策为 "dispatch"），正常执行 dispatch_next_v2。
+
+    死循环防护：
+    - 每次进入 dispatch 递增 _graph_iteration
+    - 先检查 _check_task_completed（需求是否已完成）
+    - 超过 MAX_GRAPH_ITERATIONS 硬上限时强制 finish
     """
     def _node(state: OrchestratorState) -> OrchestratorState:
+        # 递增迭代计数器
+        iteration = int(state.get("_graph_iteration") or 0) + 1
+        state["_graph_iteration"] = iteration
+
+        # P1-001 修复：dispatch 正常执行时重置 checkpoint 访问计数
+        state["_checkpoint_visits"] = 0
+
+        # 安全网0：连续无进展兜底（spec: langgraph-no-infinite-loop 业务层）
+        # 连续 3 轮主图迭代没有任何章节完成 → 强制 finish + emit task_stalled
+        if _check_idle_stall(runtime, state):
+            state["current_tag"] = "FINISH"
+            state["pending_action"] = "finish"
+            state["dispatch_reason"] = f"idle_stall rounds={state.get('_idle_rounds')}"
+            _append_line(
+                state,
+                f"[dispatch] IDLE STALL -> finish (iter={iteration}, "
+                f"idle_rounds={state.get('_idle_rounds')}, "
+                f"last_completed={state.get('_last_completed_count')})"
+            )
+            try:
+                from datetime import datetime
+                runtime.emit_event(Event(
+                    time=datetime.now(),
+                    category="AGENT",
+                    summary="task_stalled: no chapter progress for 3 iterations, awaiting user takeover",
+                    level="warning",
+                ))
+            except Exception:
+                pass
+            return state
+
+        # 安全网1：需求完成检查（所有章节写完 → 自动退出）
+        if _check_task_completed(runtime, state):
+            state["current_tag"] = "FINISH"
+            state["pending_action"] = "finish"
+            state["dispatch_reason"] = f"task_completed iter={iteration}"
+            _append_line(state, f"[dispatch] TASK COMPLETED -> finish (iter={iteration})")
+            return state
+
+        # 安全网2：硬迭代上限（防死循环兜底）
+        if iteration > MAX_GRAPH_ITERATIONS:
+            state["current_tag"] = "FINISH"
+            state["pending_action"] = "finish"
+            state["dispatch_reason"] = f"max_iterations={MAX_GRAPH_ITERATIONS}"
+            _append_line(state, f"[dispatch] MAX ITERATIONS HIT -> finish (iter={iteration})")
+            return state
+
         # 阶段 C：如果 supervisor 已决策，复用其结果，避免重复 LLM 调用
         supervisor_decision = state.get("supervisor_decision")
         if supervisor_decision and isinstance(supervisor_decision, dict):

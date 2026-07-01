@@ -27,6 +27,48 @@ _FALLBACK_DIMENSION_SCORES: list[dict[str, Any]] = [
     {"dimension": "aesthetic", "score": 81, "verdict": "pass", "comment": "语言风格稳定"},
 ]
 
+# ── 评审维度权重（防 review↔rewrite 死循环） ──────────────────────
+# 核心思路：不是所有维度都一样重要。"人设一致性"比"语言风格"关键得多，
+# 所以 consistency 权重 25%，aesthetic 权重 10%。
+# 当加权总分 >= PASS_THRESHOLD 时，即使个别维度 fail，也直接放行。
+REVIEW_DIMENSION_WEIGHTS: dict[str, float] = {
+    "consistency": 0.25,   # 人设一致性（最关键：主角性格突变、设定矛盾是致命伤）
+    "continuity": 0.20,   # 连续性（剧情衔接断裂读者会出戏）
+    "pacing":      0.15,   # 节奏（剧情推进节奏）
+    "character":   0.10,   # 角色（角色动机和成长弧）
+    "foreshadow":  0.10,   # 伏笔（伏笔埋设与回收）
+    "hook":        0.10,   # 钩子（章末钩子效果）
+    "aesthetic":   0.10,   # 美学（语言风格和文笔）
+}
+
+REVIEW_PASS_THRESHOLD = 75       # 加权总分 >= 75 直接 accept
+MAX_REWRITE_ATTEMPTS = 5         # 最多重写 5 次（兜底）
+MAX_STAGNANT_REWRITES = 2        # 连续 2 次总分未改善 → 强制 accept
+
+
+def compute_weighted_score(
+    dimensions: list[dict[str, Any]],
+    weights: dict[str, float] | None = None,
+) -> float:
+    """计算评审维度的加权总分。
+
+    Args:
+        dimensions: LLM 返回的维度评分列表，每项含 dimension + score
+        weights: 权重字典，默认使用 REVIEW_DIMENSION_WEIGHTS
+
+    Returns:
+        加权总分（0-100，保留1位小数）
+    """
+    if weights is None:
+        weights = REVIEW_DIMENSION_WEIGHTS
+    total = 0.0
+    for dim in dimensions:
+        name = dim.get("dimension", "")
+        score = float(dim.get("score", 0))
+        weight = weights.get(name, 0.0)
+        total += score * weight
+    return round(total, 1)
+
 
 def _call_with_retry(
     client: OpenAICompatClient,
@@ -213,12 +255,13 @@ chapter, scope, dimensions, issues, contract_status, contract_misses, contract_n
             data.setdefault("chapter", chapter)
             data.setdefault("scope", "chapter")
             data["is_fallback"] = False
+            data["_weighted_score"] = compute_weighted_score(data.get("dimensions", []))
         except Exception as exc:
             # P1 修复：评审 fallback 同样 emit_event WARN
             self.emit_event(Event(
                 time=datetime.now(),
                 category="AGENT",
-                summary=f"EditorAgent: ch{chapter} review JSON 解析失败，使用兜底 accept。原因: {type(exc).__name__}: {exc}",
+                summary=f"EditorAgent: ch{chapter} review JSON 解析失败，使用兜底 polish。原因: {type(exc).__name__}: {exc}",
                 level="warn",
             ))
             data = {
@@ -237,11 +280,12 @@ chapter, scope, dimensions, issues, contract_status, contract_misses, contract_n
                 "contract_status": "met",
                 "contract_misses": [],
                 "contract_notes": "核心契约已满足（兜底）",
-                "verdict": "accept",
-                "summary": "整体通过，可继续下一章（兜底）",
+                "verdict": "polish",          # 改为 polish：fallback 时至少触发一次轻修，不直接 accept
+                "summary": "LLM 返回格式异常，触发轻修（兜底）",
                 "affected_chapters": [],
                 "is_fallback": True,
                 "_fallback_reason": f"{type(exc).__name__}: {exc}",
+                "_weighted_score": compute_weighted_score(_FALLBACK_DIMENSION_SCORES),
             }
         return data
 

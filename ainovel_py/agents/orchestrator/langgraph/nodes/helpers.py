@@ -16,6 +16,13 @@ DEFAULT_ACTION = "checkpoint"
 PAUSE_INTERVAL = 5
 REASONING_TRUNCATE_LENGTH = 80
 
+# 每批次最大章节数（防无限循环安全网）
+# 长篇小说创作（用户请求"写一本 xxx 小说"）每完成 N 章后自动暂停，
+# 等待用户重新确认方向与规划，避免一次性消耗大量 token。
+MAX_BATCH_CHAPTERS = 5
+"""每批次最大章节数。超过此值后 checkpoint 节点触发 PendingRunCheckpoint，
+要求用户确认下一批章节方向。这是 LangGraph 死循环防护的第二层（业务层兜底）。"""
+
 
 def _append_line(state: GraphState, line: str) -> None:
     """向 state 的 out_lines 追加一行日志文本。

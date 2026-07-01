@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
 
+from ainovel_py.agents.roles.editor import (
+    MAX_REWRITE_ATTEMPTS,
+    MAX_STAGNANT_REWRITES,
+    REVIEW_PASS_THRESHOLD,
+    compute_weighted_score,
+)
 from ainovel_py.host.events import Event
 
 from .helpers import _append_line, _enqueue_hint_actions, _is_rewrite_mode
@@ -21,6 +27,11 @@ def review_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], GraphStat
 
     评审结果是触发重写流程的唯一来源——final_verdict 为 "rewrite" 或 "polish"
     时会在后续规划中生成对应动作。
+
+    三层退出机制（防 review↔rewrite 死循环）：
+    Layer 1: 加权总分 >= REVIEW_PASS_THRESHOLD(75) → 强制 accept
+    Layer 2: 连续 MAX_STAGNANT_REWRITES(2) 次分数未改善 → 强制 accept
+    Layer 3: rewrite 次数 >= MAX_REWRITE_ATTEMPTS(5) → 强制 accept（兜底）
 
     无待评审章节（chapter <= 0）时跳过并记录日志。
 
@@ -41,13 +52,54 @@ def review_node(runtime: "LangGraphRuntime") -> Callable[[GraphState], GraphStat
         review_payload = editor.generate_review_payload(client, chapter)
         runtime.emit_event(Event(time=datetime.now(), category="TOOL", summary=f"调用 save_review (ch{chapter})", level="info"))
         review_res = runtime.runner.call_tool("save_review", review_payload)
-        state["latest_review_result"] = review_res
-        _append_line(state, f"[tool] save_review -> final_verdict={review_res.get('final_verdict', '')}")
-        state["latest_final_verdict"] = review_res.get("final_verdict', ''")
-        plan = plan_review_followup(review_res)
-        next_action = _enqueue_hint_actions(state, plan.actions) if plan.actions else plan.next_action
+
+        # ── 加权评分 + 三层退出 ──────────────────────────────
+        dimensions = review_payload.get("dimensions", [])
+        weighted_score = float(review_payload.get("_weighted_score") or compute_weighted_score(dimensions))
+        rewrite_attempts = int(state.get("_rewrite_attempts") or 0)
+        last_score = float(state.get("_last_weighted_score") or 0)
+        stagnant_count = int(state.get("_stagnant_rewrite_count") or 0)
+
+        final_verdict = str(review_res.get("final_verdict", ""))
+
+        if final_verdict in ("rewrite", "polish"):
+            # Layer 1
+            if weighted_score >= REVIEW_PASS_THRESHOLD:
+                final_verdict = "accept"
+                _append_line(state, f"[review] L1: weighted_score={weighted_score} >= {REVIEW_PASS_THRESHOLD} -> force accept")
+            # Layer 2
+            if final_verdict in ("rewrite", "polish"):
+                if abs(weighted_score - last_score) < 1.0:
+                    stagnant_count += 1
+                else:
+                    stagnant_count = 0
+                if stagnant_count >= MAX_STAGNANT_REWRITES:
+                    final_verdict = "accept"
+                    _append_line(state, f"[review] L2: stagnant={stagnant_count} -> force accept")
+            # Layer 3
+            if final_verdict in ("rewrite", "polish"):
+                rewrite_attempts += 1
+                if rewrite_attempts >= MAX_REWRITE_ATTEMPTS:
+                    final_verdict = "accept"
+                    _append_line(state, f"[review] L3: rewrite_attempts={rewrite_attempts} >= {MAX_REWRITE_ATTEMPTS} -> force accept")
+
+        state["_last_weighted_score"] = weighted_score
+        state["latest_final_verdict"] = final_verdict
+
+        if final_verdict == "accept":
+            state["_rewrite_attempts"] = 0
+            state["_stagnant_rewrite_count"] = 0
+            state["pending_action"] = "checkpoint"
+            _append_line(state, f"[tool] save_review -> accept (weighted_score={weighted_score})")
+        else:
+            state["_rewrite_attempts"] = rewrite_attempts
+            state["_stagnant_rewrite_count"] = stagnant_count
+            plan = plan_review_followup(review_res)
+            next_action = _enqueue_hint_actions(state, plan.actions) if plan.actions else plan.next_action
+            state["pending_action"] = next_action
+            _append_line(state, f"[tool] save_review -> {final_verdict} (weighted_score={weighted_score}, attempts={rewrite_attempts})")
+
         state["pending_review_for"] = None
-        state["pending_action"] = next_action
         return state
 
     return _node

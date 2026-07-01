@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from ainovel_py.agents.roles.editor import REVIEW_PASS_THRESHOLD, compute_weighted_score
 from ainovel_py.domain.checkpoint import arc_scope, chapter_scope
 from ainovel_py.domain.review import ReviewEntry
 from ainovel_py.domain.runtime import FlowState
@@ -154,6 +155,19 @@ class SaveReviewTool:
         return "fail"
 
     def _evaluate_scorecard_gate(self, review: ReviewEntry) -> str:
+        """评审升级关卡：当 LLM 判定 accept 但分数不达标时升级为 rewrite/polish。
+
+        改造（防 review↔rewrite 死循环）：
+        - 先计算加权总分
+        - 加权总分 >= REVIEW_PASS_THRESHOLD(75) 时不升级（即使个别维度 fail，总分够了就放行）
+        - 加权总分 < 75 时保持原有升级逻辑
+        """
+        # 先算加权总分
+        dim_dicts = [{"dimension": d.dimension, "score": d.score} for d in review.dimensions]
+        weighted_score = compute_weighted_score(dim_dicts)
+        if weighted_score >= REVIEW_PASS_THRESHOLD:
+            return ""  # 加权总分达标，不升级
+
         critical_fails: list[str] = []
         polish_issues: list[str] = []
         for dim in review.dimensions:

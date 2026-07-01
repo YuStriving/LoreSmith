@@ -37,6 +37,8 @@ class PendingRunCheckpoint:
     next_chapter: int
     completed_count: int
     status: str = "awaiting_confirmation"
+    reason: str = "batch_complete"           # 暂停原因：batch_complete / idle_stall / user_request
+    next_seed_text: str = ""                 # 用户注入的下一批章节方向（前端可填）
 
 
 @dataclass

@@ -41,11 +41,17 @@ class SupervisorAgent(BaseAgent):
         review_result = state.get("latest_review_result") or {}
         hints = commit_result.get("system_hints") or []
         verdict = review_result.get("final_verdict") or ""
+        weighted_score = state.get("_last_weighted_score") or 0
+        rewrite_attempts = state.get("_rewrite_attempts") or 0
+        last_tag = state.get("last_completed_tag") or ""
 
         context_summary = (
             f"当前章节: {chapter}\n"
+            f"上一完成节点: {last_tag}\n"
             f"提交结果 hints: {hints}\n"
             f"评审结论: {verdict}\n"
+            f"加权评分: {weighted_score}\n"
+            f"重写次数: {rewrite_attempts}\n"
             f"待处理动作: {state.get('pending_actions', [])}\n"
         )
 

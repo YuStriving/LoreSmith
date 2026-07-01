@@ -144,6 +144,46 @@ class RunService:
             self.registry.put_task(RunTask(task_id=str(uuid.uuid4()), run_id=run_id, op="continue", payload={"text": text}))
         return session
 
+    def continue_run_with_planning(self, run_id: str, seed_text: str) -> RunSession:
+        """用户接管入口（spec: langgraph-no-infinite-loop）
+
+        在 checkpoint 节点因"每 MAX_BATCH_CHAPTERS 章"暂停后，前端可调用本方法
+        注入下一批章节方向，触发 LangGraph 继续执行。
+
+        行为：
+        - 把用户新的 seed_text 写入 pending_checkpoint.next_seed_text
+        - 下发 "continue" 任务（沿用现有 resume 通路）
+        - 下次 LangGraph 启动时 resume_mode=True，从 progress.next_chapter() 接续
+        - 新批次仍受 MAX_BATCH_CHAPTERS 保护，不会再次失控
+        """
+        session = self.get_run(run_id)
+        if session.is_busy():
+            raise ApiError("CONFLICT", "run is busy", 409, {"run_id": run_id})
+        pending = session.host.store.signals.load_pending_checkpoint()
+        if pending is None:
+            # 如果没有 pending checkpoint，退回到普通 resume
+            task = RunTask(
+                task_id=str(uuid.uuid4()),
+                run_id=run_id,
+                op="resume",
+                payload={"prompt": seed_text} if seed_text else {},
+            )
+        else:
+            # 把用户新的方向写入 pending_checkpoint 的 next_seed_text
+            pending.next_seed_text = seed_text
+            pending.reason = "user_request"
+            session.host.store.signals.save_pending_checkpoint(pending)
+            task = RunTask(
+                task_id=str(uuid.uuid4()),
+                run_id=run_id,
+                op="continue",
+                payload={"text": "__RUN_CONTINUE__"},
+            )
+        session.last_operation = "continue_with_planning"
+        self.registry.persist(session)
+        self.registry.put_task(task)
+        return session
+
     def list_runs(self, status: str = "", story_id: str = "") -> list[tuple[RunSession, dict[str, object]]]:
         out: list[tuple[RunSession, dict[str, object]]] = []
         for session in self.registry.list():

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ainovel_py.internal_api.deps import get_run_service, require_internal_auth
-from ainovel_py.internal_api.dto import CreateRunRequest, InstructionRequest, PauseRunRequest, ResumeRunRequest
+from ainovel_py.internal_api.dto import ContinueRunRequest, CreateRunRequest, InstructionRequest, PauseRunRequest, ResumeRunRequest
 from ainovel_py.internal_api.errors import ApiError
 from ainovel_py.internal_api.mappers import envelope, map_artifacts, map_chapter, map_create_run, map_event, map_events, map_instruction_ack, map_pause_ack, map_run
 from ainovel_py.internal_api.response_dto import AckPayload, ArtifactListPayload, ChapterPayload, CreateRunPayload, Envelope, ErrorResponse, EventsPagePayload, HealthPayload, RunListPayload, RunPayload
@@ -250,6 +250,43 @@ async def resume_run(run_id: str, req: ResumeRunRequest, service: RunService = D
         {"decision": "continue"}
     """
     session = service.resume_run(run_id, req)
+    return envelope(map_pause_ack(session, session.host.report()))
+
+
+@router.post("/runs/{run_id}/continue", response_model=Envelope[AckPayload], responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+async def continue_run(run_id: str, req: ContinueRunRequest, service: RunService = Depends(get_run_service)) -> dict[str, object]:
+    """用户接管入口（spec: langgraph-no-infinite-loop）。
+
+    在 checkpoint 节点因"每 5 章"暂停后，前端可调用本接口注入下一批章节的方向与规划，
+    触发 LangGraph 继续执行。新批次仍受 5 章硬上限保护。
+
+    行为：
+    - 把 seed_text 写入 pending_checkpoint.next_seed_text
+    - 下发 "continue" 任务（沿用现有 resume 通路）
+    - 下次 LangGraph 启动时从 progress.next_chapter() 接续
+
+    Args:
+        run_id: 要接管的运行标识
+        req: 接管请求体，包含：
+            - seed_text: 下一批章节方向/规划（必填）
+        service: 注入的 RunService 实例
+
+    Returns:
+        操作确认 + 接管后的最新状态报告
+
+    Raises:
+        400: seed_text 为空
+        404: run_id 不存在
+        409: 运行正在进行中
+
+    Example:
+        POST /internal/v1/runs/uuid-1234/continue
+        {"seed_text": "下一批按'宗门外门弟子篇'展开，主要矛盾是..."}
+    """
+    seed_text = (req.seed_text or "").strip()
+    if not seed_text:
+        raise ApiError("INVALID_ARGUMENT", "seed_text is required for user takeover", 400)
+    session = service.continue_run_with_planning(run_id, seed_text)
     return envelope(map_pause_ack(session, session.host.report()))
 
 

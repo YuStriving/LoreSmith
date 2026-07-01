@@ -23,7 +23,6 @@ class RewriteAgent(BaseAgent):
     - execute(chapter, context, review_result, rewrite_mode) → LLM 生成重写文本 +
       draft_chapter 工具落盘
 
-    P0 修复（review/rewrite-audit/code-review-report.md）：execute() 补 LLM 调用 + 落盘闭环。
     """
 
     name = "rewrite"

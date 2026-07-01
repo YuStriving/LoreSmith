@@ -79,6 +79,16 @@ class ResumeRunRequest(BaseModel):
     metadata: MetadataSpec = Field(default_factory=MetadataSpec)
 
 
+class ContinueRunRequest(BaseModel):
+    """用户接管请求（spec: langgraph-no-infinite-loop）。
+
+    在 checkpoint 节点因 batch_complete 暂停后，前端可调用本接口注入
+    下一批章节的方向与规划，触发 LangGraph 继续执行。
+    """
+    seed_text: str = Field(default="", description="下一批章节的方向/规划")
+    metadata: MetadataSpec = Field(default_factory=MetadataSpec)
+
+
 class PauseRunRequest(BaseModel):
     reason: str = ""
     metadata: MetadataSpec = Field(default_factory=MetadataSpec)
