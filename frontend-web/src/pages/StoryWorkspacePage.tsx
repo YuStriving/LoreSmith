@@ -10,12 +10,12 @@ import {
   createWorkspaceNode,
   fetchStoryWorkspace,
   fetchStoryWorkspaceReference,
+  saveWorkspaceAssistantThread,
   saveWorkspaceNode,
   startWorkspaceRun,
-  updateWorkspaceReference,
   updateWorkspaceRunBridgeSeq,
 } from '../lib/api/workspace'
-import type { Run, StoryWorkspace, WorkspaceNodeType, WorkspaceReference } from '../lib/types/api'
+import type { Run, StoryWorkspace, WorkspaceAssistantMessage, WorkspaceNodeType, WorkspaceReference } from '../lib/types/api'
 import './pages.css'
 
 export function StoryWorkspacePage() {
@@ -27,7 +27,6 @@ export function StoryWorkspacePage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [streamingAssistantText, setStreamingAssistantText] = useState('')
   const [streamingRunText, setStreamingRunText] = useState('')
-  const [rightPanelTab, setRightPanelTab] = useState<'assistant' | 'reference'>('reference')
   const [mode, setMode] = useState<'run' | 'workspace'>('run')
   const [referenceDraft, setReferenceDraft] = useState<WorkspaceReference>({
     premise: '',
@@ -75,26 +74,48 @@ export function StoryWorkspacePage() {
 
   const assistantMutation = useMutation({
     mutationFn: async ({ workspace, instruction }: { workspace: StoryWorkspace; instruction: string }) => {
-      setStreamingAssistantText('')
-      return await appendAssistantMessage(storyId, workspace, 'rewrite', instruction, (delta) => {
-        setStreamingAssistantText((current) => {
-          const next = `${current}${delta}`
-          setDraftContent(next)
-          return next
-        })
-      })
-    },
-    onSuccess: (result) => {
-      setStreamingAssistantText('')
-      setDraftContent(result.content)
-      if (workspaceQuery.data?.activeNodeId) {
-        void saveMutation.mutate({
-          workspace: workspaceQuery.data,
-          nodeId: workspaceQuery.data.activeNodeId,
-          payload: { content: result.content },
-        })
+      const text = instruction.trim()
+      if (!text) {
+        throw new Error('instruction is required')
       }
-      void queryClient.invalidateQueries({ queryKey: ['story-workspace', storyId] })
+      const userMessage: WorkspaceAssistantMessage = {
+        id: `msg-${crypto.randomUUID()}`,
+        role: 'user',
+        content: text,
+        createdAt: new Date().toISOString(),
+      }
+      queryClient.setQueryData(['story-workspace', storyId], (current: StoryWorkspace | undefined) =>
+        current
+          ? {
+              ...current,
+              assistantThread: [...current.assistantThread, userMessage],
+            }
+          : current,
+      )
+      setStreamingAssistantText('')
+      const response = await appendAssistantMessage(storyId, workspace, 'chat', text, (delta) => {
+        setStreamingAssistantText((current) => `${current}${delta}`)
+      })
+      return { response, userMessage }
+    },
+    onSuccess: async ({ response }) => {
+      setStreamingAssistantText('')
+      const assistantMessage: WorkspaceAssistantMessage = {
+        id: `msg-${crypto.randomUUID()}`,
+        role: 'assistant',
+        content: response.content,
+        createdAt: new Date().toISOString(),
+      }
+      const currentWorkspace = queryClient.getQueryData<StoryWorkspace>(['story-workspace', storyId]) ?? workspaceQuery.data
+      if (!currentWorkspace) return
+      const assistantThread = [...currentWorkspace.assistantThread, assistantMessage]
+      const optimisticWorkspace: StoryWorkspace = {
+        ...currentWorkspace,
+        assistantThread,
+      }
+      queryClient.setQueryData(['story-workspace', storyId], optimisticWorkspace)
+      const persistedWorkspace = await saveWorkspaceAssistantThread(storyId, optimisticWorkspace, assistantThread)
+      queryClient.setQueryData(['story-workspace', storyId], persistedWorkspace)
     },
     onError: () => setStreamingAssistantText(''),
   })
@@ -106,23 +127,6 @@ export function StoryWorkspacePage() {
       queryClient.setQueryData(['story-workspace', storyId], nextWorkspace)
       setSelectedNodeId(nextWorkspace.activeNodeId)
       setDraftContent(nextWorkspace.activeNodeId ? nextWorkspace.contentByNodeId[nextWorkspace.activeNodeId] ?? '' : '')
-    },
-  })
-
-  const saveReferenceMutation = useMutation({
-    mutationFn: async (reference: WorkspaceReference) => updateWorkspaceReference(storyId, reference),
-    onSuccess: (nextReference) => {
-      queryClient.setQueryData(['story-workspace-reference', storyId, workspaceQuery.data?.updatedAt], nextReference)
-      setReferenceDraft(nextReference)
-      void queryClient.invalidateQueries({ queryKey: ['story-workspace', storyId] })
-    },
-  })
-
-  const refreshReferenceMutation = useMutation({
-    mutationFn: async () => fetchStoryWorkspaceReference(storyId, workspaceQuery.data),
-    onSuccess: (nextReference) => {
-      queryClient.setQueryData(['story-workspace-reference', storyId, workspaceQuery.data?.updatedAt], nextReference)
-      setReferenceDraft(nextReference)
     },
   })
 
@@ -319,7 +323,6 @@ export function StoryWorkspacePage() {
             setIsFollowingRun(false)
           } else {
             setMode('workspace')
-            setRightPanelTab('assistant')
           }
         }}
         onCreateNode={(parentId, type) => {
@@ -357,27 +360,23 @@ export function StoryWorkspacePage() {
       </div>
 
       <WorkspaceAssistantPanel
-        mode={mode}
         workspace={workspace}
-        reference={referenceDraft}
         selectedNodeId={selectedNodeId}
-        tab={rightPanelTab}
-        onTabChange={setRightPanelTab}
-        isPending={assistantMutation.isPending || saveReferenceMutation.isPending || refreshReferenceMutation.isPending || runMutation.isPending || continueMutation.isPending}
+        isPending={assistantMutation.isPending || runMutation.isPending || continueMutation.isPending}
         streamingText={streamingAssistantText}
-        streamingRunText={streamingRunText}
         awaitingConfirmation={runState?.awaitingConfirmation ?? null}
         runStatus={runState?.status ?? workspace.runBridge?.runSyncStatus ?? null}
         isContinuingRun={isContinuingRun}
         onSubmit={async (instruction) => {
-          setMode('workspace')
           await assistantMutation.mutateAsync({ workspace, instruction })
         }}
         onContinueRun={async () => {
-          if (workspace.runBridge?.activeRunId) {
+          const shouldResumeRun = Boolean(
+            workspace.runBridge?.activeRunId && (runState?.awaitingConfirmation || runState?.status === 'waiting_input' || runState?.status === 'idle'),
+          )
+          if (workspace.runBridge?.activeRunId && shouldResumeRun) {
             setMode('run')
             setIsFollowingRun(true)
-            setRightPanelTab('reference')
             setIsContinuingRun(true)
             setStreamingRunText('')
             if (runState?.awaitingConfirmation) {
@@ -387,15 +386,10 @@ export function StoryWorkspacePage() {
             }
           } else {
             setIsFollowingRun(true)
+            setMode('run')
             setStreamingRunText('')
             await runMutation.mutateAsync(referenceDraft.premise || workspace.premise)
           }
-        }}
-        onSaveReference={async () => {
-          await saveReferenceMutation.mutateAsync(referenceDraft)
-        }}
-        onRefreshReference={async () => {
-          await refreshReferenceMutation.mutateAsync()
         }}
       />
     </section>

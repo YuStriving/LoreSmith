@@ -6,9 +6,11 @@ import type {
   ArcSummary,
   CharacterSnapshot,
   StoryCharacter,
+  StoryWordCount,
   StoryCompass,
   StoryReferenceDetail,
   StoryWorkspace,
+  WorkspaceAssistantMessage,
   VolumePlan,
   VolumeSummary,
   WorkspaceAssistantStreamResponse,
@@ -353,7 +355,6 @@ export async function appendAssistantMessage(
         story_id: storyId,
         title: workspace.title,
         premise: workspace.premise,
-        style: workspace.style ?? '',
       },
       node: {
         node_id: workspace.activeNodeId ?? '',
@@ -431,11 +432,51 @@ export async function appendAssistantMessage(
     throw new ApiError('流式响应未结束', 'INCOMPLETE_STREAM', response.status)
   }
 
-  return donePayload
+  const content = donePayload.content ?? donePayload.result?.content ?? ''
+  return {
+    ...donePayload,
+    content,
+    fallbackUsed: donePayload.fallbackUsed ?? Boolean(donePayload.fallback_used),
+  } satisfies WorkspaceAssistantStreamResponse
 }
 
-export async function startWorkspaceRun(storyId: string, prompt: string, workspace?: StoryWorkspace, reference?: WorkspaceReference) {
-  const runId = workspace?.runBridge?.activeRunId ?? crypto.randomUUID()
+export async function saveWorkspaceAssistantThread(storyId: string, workspace: StoryWorkspace, assistantThread: WorkspaceAssistantMessage[]) {
+  try {
+    return await pythonFetch<StoryWorkspace>(`/internal/v1/workspace/assistant-thread?story_id=${encodeURIComponent(storyId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ assistantThread }),
+    })
+  } catch (error) {
+    if (!isWorkspaceFallbackError(error)) {
+      throw error
+    }
+    return saveWorkspaceLocal({
+      ...workspace,
+      assistantThread,
+    })
+  }
+}
+
+function normalizeRunWordCount(wordCount?: StoryWordCount | null) {
+  const minWords = Math.max(2000, Number(wordCount?.minWords ?? 2000) || 2000)
+  const targetWords = Math.max(minWords, Number(wordCount?.targetWords ?? 2500) || 2500)
+  return {
+    min_words: minWords,
+    target_words: targetWords,
+  }
+}
+
+export async function startWorkspaceRun(
+  storyId: string,
+  prompt: string,
+  workspace?: StoryWorkspace,
+  reference?: WorkspaceReference,
+  wordCount?: StoryWordCount | null,
+) {
+  const reusableRunStatuses = new Set(['running', 'waiting_input'])
+  const existingRunId = workspace?.runBridge?.activeRunId ?? ''
+  const existingRunStatus = workspace?.runBridge?.runSyncStatus ?? ''
+  const runId = existingRunId && reusableRunStatuses.has(existingRunStatus) ? existingRunId : crypto.randomUUID()
   const storyTitle = workspace?.title ?? storyId
   const storyPremise = reference?.premise || workspace?.premise || prompt
   await pythonCreateRun({
@@ -444,17 +485,12 @@ export async function startWorkspaceRun(storyId: string, prompt: string, workspa
       story_id: storyId,
       title: storyTitle,
       premise: storyPremise,
-      style: workspace?.style ?? 'default',
       characters: normalizeStoryCharacters(reference),
-      word_count: {
-        min_words: 1200,
-        target_words: 1800,
-        max_words: 2600,
-      },
+      word_count: normalizeRunWordCount(wordCount),
     },
     execution: {
-      provider: 'openrouter',
-      model: 'qwen3.5-flash',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
       context_window: 128000,
     },
     input: {
@@ -485,10 +521,10 @@ export async function startWorkspaceRun(storyId: string, prompt: string, workspa
     method: 'PUT',
     body: JSON.stringify({
       activeRunId: runId,
-      runAfterSeq: workspace?.runBridge?.runAfterSeq ?? 0,
+      runAfterSeq: runId === existingRunId ? workspace?.runBridge?.runAfterSeq ?? 0 : 0,
       runSyncStatus: 'running',
       runSyncUpdatedAt: new Date().toISOString(),
-      lastCompletedChapter: workspace?.runBridge?.lastCompletedChapter ?? null,
+      lastCompletedChapter: runId === existingRunId ? workspace?.runBridge?.lastCompletedChapter ?? null : null,
     }),
   })
 }
